@@ -1,100 +1,52 @@
-import os
-import json
-import datetime
-from zoneinfo import ZoneInfo
+name: Update JD Logistics JSON
 
-import tushare as ts
+on:
+  schedule:
+    - cron: '30 8 * * 1-5'  # 每天北京时间 16:30 执行（UTC 08:30）
+  workflow_dispatch:        # 允许手动 Run workflow 立即执行
 
+concurrency:
+  group: update-jdlogistics-json
+  cancel-in-progress: false
 
-TS_CODE = "02618.HK"
-OUT_FILE = "jd-logistics-latest.json"
-TZ = ZoneInfo("Asia/Shanghai")
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 关键：需要完整历史，rebase 才不会出问题
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-def today_cn() -> datetime.date:
-    """返回北京时间的日期（避免 GitHub Actions 默认 UTC 导致日期偏差）"""
-    return datetime.datetime.now(TZ).date()
+      - name: Install dependencies
+        run: pip install -U requests tushare
 
+      - name: Run update script
+        env:
+          HK_API_TOKEN: ${{ secrets.HK_API_TOKEN }}
+        run: python update_jdlogistics_json.py
 
-def fetch_data():
-    # 从 GitHub Secrets 注入的环境变量读取 token
-    token = os.getenv("HK_API_TOKEN")
-    if not token:
-        raise RuntimeError("Missing HK_API_TOKEN in environment")
+      - name: Commit and push changes
+        run: |
+          set -e
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
 
-    ts.set_token(token)
-    pro = ts.pro_api()
+          git add jd-logistics-latest.json
 
-    # 用北京时间计算日期区间
-    end_date = today_cn().strftime("%Y%m%d")
-    start_date = (today_cn() - datetime.timedelta(days=14)).strftime("%Y%m%d")
+          # 如果文件没变化，就不提交不推送
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
 
-    df = pro.hk_daily(ts_code=TS_CODE, start_date=start_date, end_date=end_date)
-    if df is None or df.empty:
-        return None
+          git commit -m "Update JD Logistics JSON"
 
-    # 确保按交易日升序，取最后一行
-    df = df.sort_values("trade_date", ascending=True)
-    latest = df.iloc[-1]
-
-    # 价格字段
-    open_p = float(latest["open"])
-    high_p = float(latest["high"])
-    low_p = float(latest["low"])
-    close_p = float(latest["close"])
-
-    # 成交量/成交额字段：tushare 有时是 vol/amount，也可能缺失
-    vol = latest.get("vol", 0) if hasattr(latest, "get") else latest["vol"]
-    amount = latest.get("amount", None) if hasattr(latest, "get") else latest.get("amount")
-
-    # vol 可能是字符串/浮点，统一转 int
-    try:
-        volume_i = int(float(vol)) if vol is not None else 0
-    except Exception:
-        volume_i = 0
-
-    # amount 可能缺失，则用 close * volume 粗算一个（仅兜底）
-    if amount is None:
-        amount_f = round(close_p * volume_i, 2)
-    else:
-        try:
-            amount_f = float(amount)
-        except Exception:
-            amount_f = round(close_p * volume_i, 2)
-
-    # trade_date: YYYYMMDD -> YYYY-MM-DD
-    trade_date = str(latest["trade_date"])
-    date_fmt = f"{trade_date[0:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
-
-    data = {
-        "symbol": TS_CODE,
-        "date": date_fmt,
-        "open": round(open_p, 2),
-        "high": round(high_p, 2),
-        "low": round(low_p, 2),
-        "close": round(close_p, 2),
-        "volume": volume_i,
-        "amount": round(amount_f, 2),
-    }
-    return data
-
-
-def main():
-    try:
-        data = fetch_data()
-        if not data:
-            print("No data from Tushare.")
-            return
-
-        with open(OUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-        print("Updated:", data)
-
-    except Exception as e:
-        print("ERROR:", repr(e))
-        raise
-
-
-if __name__ == "__main__":
-    main()
+          # 关键：先同步远端最新，再推送，解决 rejected (fetch first)
+          git pull --rebase origin main
+          git push origin main

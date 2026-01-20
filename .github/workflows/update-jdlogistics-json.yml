@@ -1,157 +1,70 @@
 import os
 import json
 import datetime
+from zoneinfo import ZoneInfo
+
 import tushare as ts
 
 
 TS_CODE = "02618.HK"
-OUT_PRICE_FILE = "jd-logistics-latest.json"
-OUT_STATUS_FILE = "tushare-status.json"
+OUT_FILE = "jd-logistics-latest.json"
+TZ = ZoneInfo("Asia/Shanghai")
 
 
-def bj_now() -> datetime.datetime:
-    # 北京时间（固定 UTC+8，不用系统时区，避免 Runner 时区干扰）
-    return datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+def today_cn() -> datetime.date:
+    """返回北京时间的日期（避免 GitHub Actions 默认 UTC 导致日期偏差）"""
+    return datetime.datetime.now(TZ).date()
 
 
-def is_weekday(d: datetime.date) -> bool:
-    return d.weekday() < 5  # Mon=0 ... Fri=4
+def fetch_data():
+    # 从 GitHub Secrets 注入的环境变量读取 token
+    token = os.getenv("HK_API_TOKEN")
+    if not token:
+        raise RuntimeError("Missing HK_API_TOKEN in environment")
 
-
-def expected_trade_date(now_bj_dt: datetime.datetime) -> str:
-    """
-    预期“应该”已经有的数据交易日：
-    - 如果今天是工作日：期望 = 今天
-    - 如果今天是周末：期望 = 上一个周五
-    说明：这只用于“检测Tushare是否更新到今天”，不保证Tushare一定已在某个时刻完成入库。
-    """
-    d = now_bj_dt.date()
-    while not is_weekday(d):
-        d -= datetime.timedelta(days=1)
-    return d.strftime("%Y%m%d")
-
-
-def load_existing_trade_date() -> str | None:
-    try:
-        with open(OUT_PRICE_FILE, "r", encoding="utf-8") as f:
-            obj = json.load(f)
-        # 你的文件里是 YYYY-MM-DD
-        s = str(obj.get("date", "")).replace("-", "")
-        return s if len(s) == 8 else None
-    except Exception:
-        return None
-
-
-def write_json(path: str, data: dict) -> None:
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-def fetch_latest_from_tushare(token: str, ts_code: str, start: str, end: str):
     ts.set_token(token)
     pro = ts.pro_api()
 
-    df = pro.hk_daily(ts_code=ts_code, start_date=start, end_date=end)
+    # 用北京时间计算日期区间
+    end_date = today_cn().strftime("%Y%m%d")
+    start_date = (today_cn() - datetime.timedelta(days=14)).strftime("%Y%m%d")
+
+    df = pro.hk_daily(ts_code=TS_CODE, start_date=start_date, end_date=end_date)
     if df is None or df.empty:
         return None
 
-    df = df.sort_values("trade_date")
+    # 确保按交易日升序，取最后一行
+    df = df.sort_values("trade_date", ascending=True)
     latest = df.iloc[-1]
-    return latest, df
 
-
-def main():
-    now_bj_dt = bj_now()
-    exp_td = expected_trade_date(now_bj_dt)
-
-    token = os.getenv("HK_API_TOKEN")
-    if not token:
-        raise RuntimeError("Missing HK_API_TOKEN in environment (GitHub Secrets 未注入)")
-
-    # 拉近一点但足够覆盖跨月/假期的情况
-    end_date = now_bj_dt.date().strftime("%Y%m%d")
-    start_date = (now_bj_dt.date() - datetime.timedelta(days=30)).strftime("%Y%m%d")
-
-    print(f"[INFO] now_bj={now_bj_dt.strftime('%Y-%m-%d %H:%M:%S')} expected_trade_date={exp_td}")
-    print(f"[INFO] ts_code={TS_CODE}")
-    print(f"[INFO] request_range={start_date}~{end_date}")
-
-    try:
-        res = fetch_latest_from_tushare(token, TS_CODE, start_date, end_date)
-    except Exception as e:
-        # 这里如果 token 不通 / 权限不够 / 网络问题，会直接抛异常
-        status = {
-            "ok": False,
-            "now_bj": now_bj_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "expected_trade_date": exp_td,
-            "error": repr(e),
-            "message": "调用 Tushare 失败（可能是 token 无效/无权限/网络问题）",
-        }
-        write_json(OUT_STATUS_FILE, status)
-        print("[ERROR] tushare call failed:", repr(e))
-        raise
-
-    if res is None:
-        status = {
-            "ok": True,
-            "now_bj": now_bj_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            "expected_trade_date": exp_td,
-            "returned_rows": 0,
-            "tushare_latest_trade_date": None,
-            "updated_to_expected": False,
-            "message": "Tushare 返回空数据（可能接口无数据/权限不足/市场休市）",
-        }
-        write_json(OUT_STATUS_FILE, status)
-        print("[WARN] No data from Tushare.")
-        return
-
-    latest, df = res
-    returned_rows = int(df.shape[0])
-
-    tushare_latest_td = str(latest["trade_date"])  # YYYYMMDD
-    returned_min = str(df.iloc[0]["trade_date"])
-    returned_max = str(df.iloc[-1]["trade_date"])
-
-    print(f"[INFO] returned_rows={returned_rows} returned_range={returned_min}~{returned_max}")
-    print(f"[INFO] tushare_latest_trade_date={tushare_latest_td}")
-
-    updated_to_expected = tushare_latest_td >= exp_td
-
-    status = {
-        "ok": True,
-        "now_bj": now_bj_dt.strftime("%Y-%m-%d %H:%M:%S"),
-        "expected_trade_date": exp_td,
-        "ts_code": TS_CODE,
-        "request_range": f"{start_date}~{end_date}",
-        "returned_rows": returned_rows,
-        "returned_range": f"{returned_min}~{returned_max}",
-        "tushare_latest_trade_date": tushare_latest_td,
-        "updated_to_expected": updated_to_expected,
-        "message": "Tushare 已更新到预期交易日" if updated_to_expected else "Tushare 尚未更新到预期交易日（数据可能延迟入库）",
-    }
-    write_json(OUT_STATUS_FILE, status)
-
-    # 如果 Tushare 还没更新到“预期交易日”，就不覆盖价格文件，避免误以为“今天没涨跌”
-    if not updated_to_expected:
-        print("[INFO] Tushare not updated to expected trade date yet. Keep existing output. Exit.")
-        return
-
-    # 组装输出
+    # 价格字段
     open_p = float(latest["open"])
     high_p = float(latest["high"])
     low_p = float(latest["low"])
     close_p = float(latest["close"])
 
-    vol = latest.get("vol", 0)
-    amount = latest.get("amount", None)
-    volume_i = int(float(vol)) if vol is not None else 0
+    # 成交量/成交额字段：tushare 有时是 vol/amount，也可能缺失
+    vol = latest.get("vol", 0) if hasattr(latest, "get") else latest["vol"]
+    amount = latest.get("amount", None) if hasattr(latest, "get") else latest.get("amount")
 
+    # vol 可能是字符串/浮点，统一转 int
+    try:
+        volume_i = int(float(vol)) if vol is not None else 0
+    except Exception:
+        volume_i = 0
+
+    # amount 可能缺失，则用 close * volume 粗算一个（仅兜底）
     if amount is None:
         amount_f = round(close_p * volume_i, 2)
     else:
-        amount_f = float(amount)
+        try:
+            amount_f = float(amount)
+        except Exception:
+            amount_f = round(close_p * volume_i, 2)
 
-    date_fmt = f"{tushare_latest_td[0:4]}-{tushare_latest_td[4:6]}-{tushare_latest_td[6:8]}"
+    # trade_date: YYYYMMDD -> YYYY-MM-DD
+    trade_date = str(latest["trade_date"])
+    date_fmt = f"{trade_date[0:4]}-{trade_date[4:6]}-{trade_date[6:8]}"
 
     data = {
         "symbol": TS_CODE,
@@ -163,15 +76,24 @@ def main():
         "volume": volume_i,
         "amount": round(amount_f, 2),
     }
+    return data
 
-    # 如果已是同一天数据，就不重复写（减少无意义提交）
-    existing_td = load_existing_trade_date()
-    if existing_td == tushare_latest_td:
-        print(f"[INFO] Output already at trade_date={tushare_latest_td}. No changes. Exit.")
-        return
 
-    write_json(OUT_PRICE_FILE, data)
-    print("Updated:", data)
+def main():
+    try:
+        data = fetch_data()
+        if not data:
+            print("No data from Tushare.")
+            return
+
+        with open(OUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        print("Updated:", data)
+
+    except Exception as e:
+        print("ERROR:", repr(e))
+        raise
 
 
 if __name__ == "__main__":

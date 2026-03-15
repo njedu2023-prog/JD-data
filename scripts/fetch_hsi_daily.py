@@ -127,7 +127,6 @@ def prepare_raw_table(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     df = df_raw.copy()
 
-    # 确保可选字段存在，避免后面选列报错
     optional_cols = ["change", "pct_chg", "swing", "vol", "amount"]
     for col in optional_cols:
         if col not in df.columns:
@@ -184,6 +183,12 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["volume"] = pd.to_numeric(df["vol"], errors="coerce").fillna(0.0)
     clean["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
 
+    clean["quality_flag"] = "PASS"
+
+    # 关键处理：
+    # 指数历史首行常出现 prev_close 为空，这一行不适合作为正式 clean 主表行，直接剔除
+    clean = clean[~clean["prev_close"].isna()].copy().reset_index(drop=True)
+
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
 
@@ -191,8 +196,6 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["log_ret_1d"] = ratio.map(
         lambda x: pd.NA if pd.isna(x) or x <= 0 else math.log(x)
     )
-
-    clean["quality_flag"] = "PASS"
 
     invalid_mask = (
         clean["symbol"].isna()

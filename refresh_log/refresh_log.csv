@@ -1,5 +1,5 @@
-run_time,action,symbol,records_added,records_overwritten,status,message
-2026-03-15T19:00:57Z,hk_daily,02618.HK,48,0,success,
+refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
+2026-03-15T19:00:57Z,hk_daily,02618.HK,48,48,0,success,
 2026-03-15T19:12:50Z,tushare.hk_daily,02618.HK,1178,1178,0,success,full refresh from listing date completed
 2026-03-15T19:29:13Z,tushare.hk_daily,02618.HK,1178,1178,0,success,full refresh from listing date completed
 2026-03-15T19:46:34Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed

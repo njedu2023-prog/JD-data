@@ -3,3 +3,4 @@ run_time,action,symbol,records_added,records_overwritten,status,message
 2026-03-15T19:12:50Z,tushare.hk_daily,02618.HK,1178,1178,0,success,full refresh from listing date completed
 2026-03-15T19:29:13Z,tushare.hk_daily,02618.HK,1178,1178,0,success,full refresh from listing date completed
 2026-03-15T19:46:34Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
+2026-03-15T20:09:06Z,tushare.index_global,HSI,1523,1522,0,success,hsi full refresh completed via index_global

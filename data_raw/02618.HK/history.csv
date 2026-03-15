@@ -1,0 +1,2 @@
+symbol,market,asset_type,trade_date,open,high,low,close,prev_close,volume,amount,pct_change,ret_1d,log_ret_1d,quality_flag,ingest_time,data_version
+02618.HK,HK,equity,2026-03-13,14.00,14.25,13.52,13.64,,28493558,393818850.19,,,,PASS,,D20260316.01

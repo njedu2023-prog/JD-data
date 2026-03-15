@@ -1,1 +1,12 @@
-{"symbol": "02618.HK", "date": "2026-03-13", "open": 14.0, "high": 14.25, "low": 13.52, "close": 13.64, "volume": 28493558, "amount": 393818850.19}
+{
+  "symbol": NaN,
+  "date": "2026-03-13",
+  "open": 14.0,
+  "high": 14.25,
+  "low": 13.52,
+  "close": 13.64,
+  "volume": 28493558.0,
+  "amount": 393818850.19,
+  "quality_flag": "PASS",
+  "data_version": "D20260315.01"
+}

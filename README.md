@@ -1,23 +1,81 @@
-# JD-data Schema V1
+# JD-data
 
-目标：构建 02618.HK 及未来任意单票的可训练、可回放、可审计的数据仓。
+JD-data 是一个面向港股单票与相关市场基准的源数据仓库。  
+当前主线不是模型，不是预测，不是交易执行，而是：
 
-## 目录规划
-- data_raw/02618.HK/*.csv
-- data_clean/02618.HK/*.parquet
-- refresh_log/refresh_log.csv
-- schema/schema_v1.md
-- latest/jd-logistics-latest.json
+**先把源数据仓建设成可训练、可回放、可审计、字段完整、结构稳定、可持续扩展的正式底座。**
 
-## 字段契约（schema_v1）
-- symbol, market, asset_type
-- trade_date
-- open, high, low, close, prev_close
-- volume, amount
-- pct_change, ret_1d, log_ret_1d
-- quality_flag, ingest_time, data_version
+当前首个核心标的是：
 
-## 刷新规则
-- 每日追加历史，不覆盖历史
-- latest 作为最近一日快照
-- 失败不得覆盖旧数据
+- 京东物流 `02618.HK`
+
+当前已纳入的市场基准与底层辅助数据包括：
+
+- 港股交易日历
+- 恒生指数 `HSI`
+
+---
+
+## 当前主线目标
+
+当前阶段唯一重点：
+
+**先把源数据仓彻底收口。**
+
+这意味着当前优先解决的是：
+
+- 数据是否拿到手
+- raw / clean 是否分层
+- clean 主表是否字段完整
+- 交易日历是否落地
+- 市场基准是否落地
+- 自动刷新与日志是否稳定
+- 文档与真实目录是否一致
+
+当前阶段明确不做：
+
+- 不切模型主线
+- 不讨论预测精度
+- 不讨论交易收益
+- 不进入下游训练层
+- 不在脏表上继续缝补
+- 不把 raw 与 clean 混成一张表
+
+---
+
+## 当前仓库结构
+
+```text
+JD-data/
+├─ .github/workflows/
+│  ├─ fetch_hk_daily.yml
+│  ├─ fetch_hk_calendar.yml
+│  └─ fetch_hsi_daily.yml
+│
+├─ calendar/
+│  └─ hk_trade_calendar.csv
+│
+├─ data_raw/
+│  ├─ 02618.HK/
+│  │  └─ hk_daily_raw.csv
+│  └─ HSI/
+│     └─ hsi_raw.csv
+│
+├─ data_clean/
+│  ├─ 02618.HK/
+│  │  └─ daily_clean.csv
+│  └─ HSI/
+│     └─ hsi_clean.csv
+│
+├─ refresh_log/
+│  └─ refresh_log.csv
+│
+├─ scripts/
+│  ├─ fetch_hk_daily.py
+│  ├─ fetch_hk_calendar.py
+│  └─ fetch_hsi_daily.py
+│
+├─ jd-logistics-latest.json
+├─ 0316 衔接口令.MD
+├─ 《JD-data 源数据仓全量建设清单 V1》.MD
+└─ README.md

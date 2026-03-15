@@ -1,5 +1,6 @@
 import os
 import json
+import math
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -10,7 +11,8 @@ TS_CODE = "02618.HK"
 MARKET = "HK"
 ASSET_TYPE = "equity"
 
-START_DATE = "20210517"  # 京东物流上市后起始日，当前阶段统一全量拉取
+# 京东物流上市后起始日；当前阶段采用“全量拉取”策略，优先保证历史完整和纠偏能力
+START_DATE = "20210517"
 DATA_VERSION_PREFIX = "D"
 
 RAW_DIR = "data_raw/02618.HK"
@@ -22,7 +24,7 @@ LATEST_PATH = "jd-logistics-latest.json"
 REFRESH_LOG_PATH = "refresh_log/refresh_log.csv"
 
 
-def ensure_parent_dirs() -> None:
+def ensure_dirs() -> None:
     os.makedirs(RAW_DIR, exist_ok=True)
     os.makedirs(CLEAN_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(REFRESH_LOG_PATH), exist_ok=True)
@@ -38,7 +40,6 @@ def data_version() -> str:
 
 def normalize_trade_date(series: pd.Series) -> pd.Series:
     s = series.astype(str).str.strip()
-    # 统一输出 YYYY-MM-DD
     s = pd.to_datetime(s, format="%Y%m%d", errors="coerce").dt.strftime("%Y-%m-%d")
     return s
 
@@ -47,9 +48,12 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
 
     # 排序 + 去重
-    df = df.sort_values("trade_date").drop_duplicates(subset=["ts_code", "trade_date"], keep="last").reset_index(drop=True)
+    df = (
+        df.sort_values("trade_date")
+        .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
+        .reset_index(drop=True)
+    )
 
-    # 标准字段
     clean = pd.DataFrame()
     clean["symbol"] = TS_CODE
     clean["market"] = MARKET
@@ -67,22 +71,36 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     # 衍生字段
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
-    clean["log_ret_1d"] = (clean["close"] / clean["prev_close"]).map(
-        lambda x: pd.NA if pd.isna(x) or x <= 0 else float(pd.Series([x]).map(lambda v: __import__("math").log(v))[0])
+
+    ratio = clean["close"] / clean["prev_close"]
+    clean["log_ret_1d"] = ratio.map(
+        lambda x: pd.NA if pd.isna(x) or x <= 0 else math.log(x)
     )
 
-    # 质量标记
+    # 默认质量标记
     clean["quality_flag"] = "PASS"
+
     invalid_mask = (
-        clean["open"].isna()
+        clean["symbol"].isna()
+        | clean["market"].isna()
+        | clean["asset_type"].isna()
+        | clean["trade_date"].isna()
+        | clean["open"].isna()
         | clean["high"].isna()
         | clean["low"].isna()
         | clean["close"].isna()
         | clean["prev_close"].isna()
+        | clean["volume"].isna()
+        | clean["amount"].isna()
         | (clean["high"] < clean["low"])
+        | (clean["high"] < clean["open"])
+        | (clean["high"] < clean["close"])
+        | (clean["low"] > clean["open"])
+        | (clean["low"] > clean["close"])
         | (clean["volume"] < 0)
         | (clean["amount"] < 0)
     )
+
     clean.loc[invalid_mask, "quality_flag"] = "FAIL"
 
     now_iso = utc_now_iso()
@@ -93,18 +111,54 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     return clean
 
 
+def validate_clean_table(clean: pd.DataFrame) -> None:
+    required_not_null = [
+        "symbol",
+        "market",
+        "asset_type",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "prev_close",
+        "volume",
+        "amount",
+        "quality_flag",
+        "ingest_time",
+        "data_version",
+    ]
+
+    null_counts = clean[required_not_null].isna().sum()
+    bad_cols = null_counts[null_counts > 0]
+
+    if len(bad_cols) > 0:
+        raise ValueError(f"daily_clean has nulls in required columns: {bad_cols.to_dict()}")
+
+    fail_rows = int((clean["quality_flag"] == "FAIL").sum())
+    if fail_rows > 0:
+        raise ValueError(f"daily_clean contains FAIL rows: {fail_rows}")
+
+    if clean.empty:
+        raise ValueError("daily_clean is empty")
+
+    if clean["trade_date"].duplicated().any():
+        dup_count = int(clean["trade_date"].duplicated().sum())
+        raise ValueError(f"daily_clean has duplicated trade_date rows: {dup_count}")
+
+
 def write_latest_json(clean: pd.DataFrame) -> None:
     latest_row = clean.sort_values("trade_date").iloc[-1]
 
     latest_json = {
         "symbol": latest_row["symbol"],
         "date": latest_row["trade_date"],
-        "open": None if pd.isna(latest_row["open"]) else float(latest_row["open"]),
-        "high": None if pd.isna(latest_row["high"]) else float(latest_row["high"]),
-        "low": None if pd.isna(latest_row["low"]) else float(latest_row["low"]),
-        "close": None if pd.isna(latest_row["close"]) else float(latest_row["close"]),
-        "volume": None if pd.isna(latest_row["volume"]) else float(latest_row["volume"]),
-        "amount": None if pd.isna(latest_row["amount"]) else float(latest_row["amount"]),
+        "open": float(latest_row["open"]),
+        "high": float(latest_row["high"]),
+        "low": float(latest_row["low"]),
+        "close": float(latest_row["close"]),
+        "volume": float(latest_row["volume"]),
+        "amount": float(latest_row["amount"]),
         "quality_flag": latest_row["quality_flag"],
         "data_version": latest_row["data_version"],
     }
@@ -115,6 +169,7 @@ def write_latest_json(clean: pd.DataFrame) -> None:
 
 def append_refresh_log(status: str, rows_raw: int, rows_clean: int, fail_rows: int, message: str) -> None:
     exists = os.path.exists(REFRESH_LOG_PATH)
+
     log_df = pd.DataFrame(
         [
             {
@@ -129,6 +184,7 @@ def append_refresh_log(status: str, rows_raw: int, rows_clean: int, fail_rows: i
             }
         ]
     )
+
     log_df.to_csv(
         REFRESH_LOG_PATH,
         mode="a",
@@ -139,7 +195,7 @@ def append_refresh_log(status: str, rows_raw: int, rows_clean: int, fail_rows: i
 
 
 def main() -> None:
-    ensure_parent_dirs()
+    ensure_dirs()
 
     token = os.environ.get("TUSHARE_TOKEN", "").strip()
     if not token:
@@ -148,7 +204,7 @@ def main() -> None:
     ts.set_token(token)
     pro = ts.pro_api()
 
-    # 当前阶段：每天全量拉取上市以来历史，确保能纠偏、补齐、统一
+    # 当前阶段：每天全量拉取上市以来历史，优先保证纠偏与完整性
     df_raw = pro.hk_daily(
         ts_code=TS_CODE,
         start_date=START_DATE,
@@ -165,12 +221,20 @@ def main() -> None:
         )
         raise SystemExit(0)
 
-    # 原始层：保留 Tushare 原始字段
-    df_raw = df_raw.sort_values("trade_date").drop_duplicates(subset=["ts_code", "trade_date"], keep="last").reset_index(drop=True)
+    # raw 层：保留 Tushare 原始字段
+    df_raw = (
+        df_raw.sort_values("trade_date")
+        .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
+        .reset_index(drop=True)
+    )
     df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8")
 
-    # 清洗层：输出正式训练主表
+    # clean 层：生成正式训练主表
     clean = build_clean_table(df_raw)
+
+    # 强校验：不允许空身份字段/FAIL 行静默落盘
+    validate_clean_table(clean)
+
     clean.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
 
     # latest

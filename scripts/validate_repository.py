@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List
+from typing import List
 
 import pandas as pd
 
@@ -12,6 +12,8 @@ REQUIRED_FILES = [
     "data_clean/HSI/hsi_clean.csv",
     "data_raw/HKTECH/hktech_raw.csv",
     "data_clean/HKTECH/hktech_clean.csv",
+    "data_raw/HSCEI/hscei_raw.csv",
+    "data_clean/HSCEI/hscei_clean.csv",
     "refresh_log/refresh_log.csv",
     "jd-logistics-latest.json",
 ]
@@ -115,7 +117,13 @@ def check_calendar() -> None:
     _assert_constant_values(df, path, "market", {"HK"})
     _assert_constant_values(df, path, "exchange", {"XHKG"})
 
-    values = set(pd.to_numeric(df["is_trade_day"], errors="coerce").dropna().astype(int).unique().tolist())
+    values = set(
+        pd.to_numeric(df["is_trade_day"], errors="coerce")
+        .dropna()
+        .astype(int)
+        .unique()
+        .tolist()
+    )
     if not values.issubset({0, 1}):
         raise ValueError(f"{path} has invalid is_trade_day values: {sorted(values)}")
 
@@ -140,7 +148,7 @@ def check_refresh_log() -> None:
     _assert_not_empty(df, path)
     _assert_non_null(df, path, required_cols)
 
-    required_symbols = {"02618.HK", "HK_CALENDAR", "HSI", "HKTECH"}
+    required_symbols = {"02618.HK", "HK_CALENDAR", "HSI", "HKTECH", "HSCEI"}
     existing_symbols = set(df["symbol"].astype(str).unique().tolist())
     missing_symbols = required_symbols - existing_symbols
     if missing_symbols:
@@ -197,6 +205,7 @@ def main() -> None:
     check_calendar()
     check_index_clean("data_clean/HSI/hsi_clean.csv", "HSI")
     check_index_clean("data_clean/HKTECH/hktech_clean.csv", "HKTECH")
+    check_index_clean("data_clean/HSCEI/hscei_clean.csv", "HSCEI")
     check_refresh_log()
     print("[OK] repository validation passed")
 

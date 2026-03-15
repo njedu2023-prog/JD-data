@@ -13,6 +13,7 @@ JD-data 是一个面向港股单票与相关市场基准的源数据仓库。
 
 - 港股交易日历
 - 恒生指数 `HSI`
+- 恒生科技指数 `HKTECH`
 
 ---
 
@@ -50,7 +51,8 @@ JD-data/
 ├─ .github/workflows/
 │  ├─ fetch_hk_daily.yml
 │  ├─ fetch_hk_calendar.yml
-│  └─ fetch_hsi_daily.yml
+│  ├─ fetch_hsi_daily.yml
+│  └─ fetch_hktech_daily.yml
 │
 ├─ calendar/
 │  └─ hk_trade_calendar.csv
@@ -58,14 +60,18 @@ JD-data/
 ├─ data_raw/
 │  ├─ 02618.HK/
 │  │  └─ hk_daily_raw.csv
-│  └─ HSI/
-│     └─ hsi_raw.csv
+│  ├─ HSI/
+│  │  └─ hsi_raw.csv
+│  └─ HKTECH/
+│     └─ hktech_raw.csv
 │
 ├─ data_clean/
 │  ├─ 02618.HK/
 │  │  └─ daily_clean.csv
-│  └─ HSI/
-│     └─ hsi_clean.csv
+│  ├─ HSI/
+│  │  └─ hsi_clean.csv
+│  └─ HKTECH/
+│     └─ hktech_clean.csv
 │
 ├─ refresh_log/
 │  └─ refresh_log.csv
@@ -73,7 +79,8 @@ JD-data/
 ├─ scripts/
 │  ├─ fetch_hk_daily.py
 │  ├─ fetch_hk_calendar.py
-│  └─ fetch_hsi_daily.py
+│  ├─ fetch_hsi_daily.py
+│  └─ fetch_hktech_daily.py
 │
 ├─ jd-logistics-latest.json
 ├─ 0316 衔接口令.MD

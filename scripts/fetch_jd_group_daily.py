@@ -158,6 +158,9 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["volume"] = pd.to_numeric(df["vol"], errors="coerce")
     clean["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 
+    # 历史首行通常没有 prev_close，不进入正式 clean 主表
+    clean = clean[~clean["prev_close"].isna()].copy().reset_index(drop=True)
+
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
 

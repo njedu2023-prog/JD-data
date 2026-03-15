@@ -1,0 +1,49 @@
+name: fetch hscei_daily
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 11 * * 1-5"   # Asia/Shanghai 19:20，港股收盘后
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-hscei-daily:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas yfinance
+
+      - name: Run fetch_hscei_daily.py
+        run: python scripts/fetch_hscei_daily.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            data_raw/HSCEI/hscei_raw.csv \
+            data_clean/HSCEI/hscei_clean.csv \
+            refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "refresh HSCEI raw clean"
+            git push
+          fi

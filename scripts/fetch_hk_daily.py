@@ -44,17 +44,50 @@ def normalize_trade_date(series: pd.Series) -> pd.Series:
     return s
 
 
+def fetch_raw_hk_daily(pro) -> pd.DataFrame:
+    df_raw = pro.hk_daily(
+        ts_code=TS_CODE,
+        start_date=START_DATE,
+        fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
+    )
+
+    if df_raw is None:
+        return pd.DataFrame()
+
+    return df_raw.copy()
+
+
+def prepare_raw_table(df_raw: pd.DataFrame) -> pd.DataFrame:
+    if df_raw is None or df_raw.empty:
+        return pd.DataFrame(columns=["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "vol", "amount"])
+
+    required_cols = ["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "vol", "amount"]
+    missing = [c for c in required_cols if c not in df_raw.columns]
+    if missing:
+        raise ValueError(f"raw hk_daily missing required columns: {missing}")
+
+    df = df_raw[required_cols].copy()
+    df = (
+        df.sort_values("trade_date")
+        .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
+        .reset_index(drop=True)
+    )
+    return df
+
+
 def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
 
-    # 排序 + 去重
     df = (
         df.sort_values("trade_date")
         .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
         .reset_index(drop=True)
     )
 
-    clean = pd.DataFrame()
+    # 关键修复：
+    # 必须先按 df.index 初始化 clean，避免先写标量列导致整列 NaN
+    clean = pd.DataFrame(index=df.index)
+
     clean["symbol"] = TS_CODE
     clean["market"] = MARKET
     clean["asset_type"] = ASSET_TYPE
@@ -68,7 +101,6 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["volume"] = pd.to_numeric(df["vol"], errors="coerce")
     clean["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 
-    # 衍生字段
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
 
@@ -77,7 +109,6 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
         lambda x: pd.NA if pd.isna(x) or x <= 0 else math.log(x)
     )
 
-    # 默认质量标记
     clean["quality_flag"] = "PASS"
 
     invalid_mask = (
@@ -108,6 +139,28 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["ingest_time"] = now_iso
     clean["data_version"] = dv
 
+    clean = clean[
+        [
+            "symbol",
+            "market",
+            "asset_type",
+            "trade_date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "prev_close",
+            "volume",
+            "amount",
+            "pct_change",
+            "ret_1d",
+            "log_ret_1d",
+            "quality_flag",
+            "ingest_time",
+            "data_version",
+        ]
+    ].copy()
+
     return clean
 
 
@@ -129,9 +182,15 @@ def validate_clean_table(clean: pd.DataFrame) -> None:
         "data_version",
     ]
 
+    if clean is None or clean.empty:
+        raise ValueError("daily_clean is empty")
+
+    missing_cols = [c for c in required_not_null if c not in clean.columns]
+    if missing_cols:
+        raise ValueError(f"daily_clean missing required columns: {missing_cols}")
+
     null_counts = clean[required_not_null].isna().sum()
     bad_cols = null_counts[null_counts > 0]
-
     if len(bad_cols) > 0:
         raise ValueError(f"daily_clean has nulls in required columns: {bad_cols.to_dict()}")
 
@@ -139,12 +198,12 @@ def validate_clean_table(clean: pd.DataFrame) -> None:
     if fail_rows > 0:
         raise ValueError(f"daily_clean contains FAIL rows: {fail_rows}")
 
-    if clean.empty:
-        raise ValueError("daily_clean is empty")
-
     if clean["trade_date"].duplicated().any():
         dup_count = int(clean["trade_date"].duplicated().sum())
         raise ValueError(f"daily_clean has duplicated trade_date rows: {dup_count}")
+
+    if not clean["trade_date"].is_monotonic_increasing:
+        raise ValueError("daily_clean trade_date is not sorted ascending")
 
 
 def write_latest_json(clean: pd.DataFrame) -> None:
@@ -204,55 +263,61 @@ def main() -> None:
     ts.set_token(token)
     pro = ts.pro_api()
 
-    # 当前阶段：每天全量拉取上市以来历史，优先保证纠偏与完整性
-    df_raw = pro.hk_daily(
-        ts_code=TS_CODE,
-        start_date=START_DATE,
-        fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
-    )
+    rows_raw = 0
+    rows_clean = 0
+    fail_rows = 0
 
-    if df_raw is None or len(df_raw) == 0:
+    try:
+        df_raw = fetch_raw_hk_daily(pro)
+
+        if df_raw.empty:
+            append_refresh_log(
+                status="empty",
+                rows_raw=0,
+                rows_clean=0,
+                fail_rows=0,
+                message="hk_daily returned empty dataframe",
+            )
+            raise SystemExit(0)
+
+        df_raw = prepare_raw_table(df_raw)
+        rows_raw = len(df_raw)
+
+        df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8")
+
+        clean = build_clean_table(df_raw)
+        rows_clean = len(clean)
+        fail_rows = int((clean["quality_flag"] == "FAIL").sum())
+
+        validate_clean_table(clean)
+
+        clean.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
+        write_latest_json(clean)
+
         append_refresh_log(
-            status="empty",
-            rows_raw=0,
-            rows_clean=0,
-            fail_rows=0,
-            message="hk_daily returned empty dataframe",
+            status="success",
+            rows_raw=rows_raw,
+            rows_clean=rows_clean,
+            fail_rows=fail_rows,
+            message="full refresh from listing date completed",
         )
-        raise SystemExit(0)
 
-    # raw 层：保留 Tushare 原始字段
-    df_raw = (
-        df_raw.sort_values("trade_date")
-        .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
-        .reset_index(drop=True)
-    )
-    df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8")
+        print(f"[OK] raw_rows={rows_raw} clean_rows={rows_clean} fail_rows={fail_rows}")
+        print(f"[OK] RAW_PATH={RAW_PATH}")
+        print(f"[OK] CLEAN_PATH={CLEAN_PATH}")
+        print(f"[OK] LATEST_PATH={LATEST_PATH}")
 
-    # clean 层：生成正式训练主表
-    clean = build_clean_table(df_raw)
-
-    # 强校验：不允许空身份字段/FAIL 行静默落盘
-    validate_clean_table(clean)
-
-    clean.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
-
-    # latest
-    write_latest_json(clean)
-
-    fail_rows = int((clean["quality_flag"] == "FAIL").sum())
-    append_refresh_log(
-        status="success",
-        rows_raw=len(df_raw),
-        rows_clean=len(clean),
-        fail_rows=fail_rows,
-        message="full refresh from listing date completed",
-    )
-
-    print(f"[OK] raw_rows={len(df_raw)} clean_rows={len(clean)} fail_rows={fail_rows}")
-    print(f"[OK] RAW_PATH={RAW_PATH}")
-    print(f"[OK] CLEAN_PATH={CLEAN_PATH}")
-    print(f"[OK] LATEST_PATH={LATEST_PATH}")
+    except SystemExit:
+        raise
+    except Exception as e:
+        append_refresh_log(
+            status="error",
+            rows_raw=rows_raw,
+            rows_clean=rows_clean,
+            fail_rows=fail_rows,
+            message=str(e),
+        )
+        raise
 
 
 if __name__ == "__main__":

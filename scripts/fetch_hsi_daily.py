@@ -6,7 +6,7 @@ import pandas as pd
 import tushare as ts
 
 
-INDEX_CODE = "HSI.HI"
+TS_CODE = "HSI"
 SYMBOL = "HSI"
 MARKET = "HK"
 ASSET_TYPE = "index"
@@ -60,7 +60,7 @@ def append_refresh_log(
         [
             {
                 "refresh_time": utc_now_iso(),
-                "source": "tushare.index_daily",
+                "source": "tushare.index_global",
                 "symbol": symbol,
                 "rows_raw": rows_raw,
                 "rows_clean": rows_clean,
@@ -80,11 +80,13 @@ def append_refresh_log(
     )
 
 
-def fetch_raw_index_daily(pro) -> pd.DataFrame:
-    df_raw = pro.index_daily(
-        ts_code=INDEX_CODE,
+def fetch_raw_index_global(pro) -> pd.DataFrame:
+    # Tushare 国际主要指数接口：恒生指数代码为 HSI
+    # vol / amount 大部分情况下为空，因此不作为强依赖字段
+    df_raw = pro.index_global(
+        ts_code=TS_CODE,
         start_date=START_DATE,
-        fields="ts_code,trade_date,open,high,low,close,pre_close,vol,amount",
+        fields="ts_code,trade_date,open,high,low,close,pre_close,change,pct_chg,swing,vol,amount",
     )
     if df_raw is None:
         return pd.DataFrame()
@@ -94,15 +96,60 @@ def fetch_raw_index_daily(pro) -> pd.DataFrame:
 def prepare_raw_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     if df_raw is None or df_raw.empty:
         return pd.DataFrame(
-            columns=["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "vol", "amount"]
+            columns=[
+                "ts_code",
+                "trade_date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "pre_close",
+                "change",
+                "pct_chg",
+                "swing",
+                "vol",
+                "amount",
+            ]
         )
 
-    required_cols = ["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "vol", "amount"]
+    required_cols = [
+        "ts_code",
+        "trade_date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "pre_close",
+    ]
     missing = [c for c in required_cols if c not in df_raw.columns]
     if missing:
         raise ValueError(f"hsi raw missing required columns: {missing}")
 
-    df = df_raw[required_cols].copy()
+    df = df_raw.copy()
+
+    # 确保可选字段存在，避免后面选列报错
+    optional_cols = ["change", "pct_chg", "swing", "vol", "amount"]
+    for col in optional_cols:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+    df = df[
+        [
+            "ts_code",
+            "trade_date",
+            "open",
+            "high",
+            "low",
+            "close",
+            "pre_close",
+            "change",
+            "pct_chg",
+            "swing",
+            "vol",
+            "amount",
+        ]
+    ].copy()
+
     df = (
         df.sort_values("trade_date")
         .drop_duplicates(subset=["ts_code", "trade_date"], keep="last")
@@ -131,8 +178,11 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["low"] = pd.to_numeric(df["low"], errors="coerce")
     clean["close"] = pd.to_numeric(df["close"], errors="coerce")
     clean["prev_close"] = pd.to_numeric(df["pre_close"], errors="coerce")
-    clean["volume"] = pd.to_numeric(df["vol"], errors="coerce")
-    clean["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+
+    # index_global 文档说明 vol / amount 大部分无此项数据
+    # 这里统一补为 0.0，保证 clean 主表字段完整且长期稳定
+    clean["volume"] = pd.to_numeric(df["vol"], errors="coerce").fillna(0.0)
+    clean["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
 
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
@@ -261,7 +311,7 @@ def main() -> None:
     fail_rows = 0
 
     try:
-        df_raw = fetch_raw_index_daily(pro)
+        df_raw = fetch_raw_index_global(pro)
 
         if df_raw.empty:
             append_refresh_log(
@@ -270,12 +320,23 @@ def main() -> None:
                 rows_raw=0,
                 rows_clean=0,
                 fail_rows=0,
-                message="index_daily returned empty dataframe",
+                message="index_global returned empty dataframe for HSI; check tushare permission or ts_code",
             )
-            raise SystemExit(0)
+            raise ValueError("index_global returned empty dataframe for HSI")
 
         df_raw = prepare_raw_table(df_raw)
         rows_raw = len(df_raw)
+
+        if rows_raw == 0:
+            append_refresh_log(
+                status="empty",
+                symbol=SYMBOL,
+                rows_raw=0,
+                rows_clean=0,
+                fail_rows=0,
+                message="prepared raw table is empty for HSI",
+            )
+            raise ValueError("prepared raw table is empty for HSI")
 
         df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8")
 
@@ -284,7 +345,6 @@ def main() -> None:
         fail_rows = int((clean["quality_flag"] == "FAIL").sum())
 
         validate_clean_table(clean)
-
         clean.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
 
         append_refresh_log(
@@ -293,15 +353,13 @@ def main() -> None:
             rows_raw=rows_raw,
             rows_clean=rows_clean,
             fail_rows=fail_rows,
-            message="hsi full refresh completed",
+            message="hsi full refresh completed via index_global",
         )
 
         print(f"[OK] raw_rows={rows_raw} clean_rows={rows_clean} fail_rows={fail_rows}")
         print(f"[OK] RAW_PATH={RAW_PATH}")
         print(f"[OK] CLEAN_PATH={CLEAN_PATH}")
 
-    except SystemExit:
-        raise
     except Exception as e:
         append_refresh_log(
             status="error",

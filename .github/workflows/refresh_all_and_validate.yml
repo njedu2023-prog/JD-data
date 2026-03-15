@@ -1,0 +1,213 @@
+name: refresh all and validate
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: jd-data-refresh-all-and-validate
+  cancel-in-progress: false
+
+jobs:
+  fetch_hk_daily:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      TZ: Asia/Shanghai
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas tushare
+
+      - name: Run hk daily fetch script
+        run: |
+          python scripts/fetch_hk_daily.py
+
+      - name: Commit and push hk daily changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data_raw/02618.HK/hk_daily_raw.csv
+          git add data_clean/02618.HK/daily_clean.csv
+          git add jd-logistics-latest.json
+          git add refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No hk daily changes to commit."
+            exit 0
+          fi
+
+          git commit -m "refresh hk_daily data"
+          git push
+
+  fetch_hk_calendar:
+    needs: fetch_hk_daily
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      TZ: Asia/Shanghai
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas tushare
+
+      - name: Run hk calendar fetch script
+        run: |
+          python scripts/fetch_hk_calendar.py
+
+      - name: Commit and push hk calendar changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add calendar/hk_trade_calendar.csv
+          git add refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No hk calendar changes to commit."
+            exit 0
+          fi
+
+          git commit -m "refresh hk_trade_calendar data"
+          git push
+
+  fetch_hsi_daily:
+    needs: fetch_hk_calendar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      TZ: Asia/Shanghai
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas tushare
+
+      - name: Run hsi daily fetch script
+        run: |
+          python scripts/fetch_hsi_daily.py
+
+      - name: Commit and push hsi changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data_raw/HSI/hsi_raw.csv
+          git add data_clean/HSI/hsi_clean.csv
+          git add refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No hsi changes to commit."
+            exit 0
+          fi
+
+          git commit -m "refresh hsi_daily data"
+          git push
+
+  fetch_hktech_daily:
+    needs: fetch_hsi_daily
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      TZ: Asia/Shanghai
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas tushare
+
+      - name: Run hktech daily fetch script
+        run: |
+          python scripts/fetch_hktech_daily.py
+
+      - name: Commit and push hktech changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data_raw/HKTECH/hktech_raw.csv
+          git add data_clean/HKTECH/hktech_clean.csv
+          git add refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No hktech changes to commit."
+            exit 0
+          fi
+
+          git commit -m "refresh hktech_daily data"
+          git push
+
+  validate_repository:
+    needs: fetch_hktech_daily
+    runs-on: ubuntu-latest
+
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas
+
+      - name: Run repository validation
+        run: |
+          python scripts/validate_repository.py

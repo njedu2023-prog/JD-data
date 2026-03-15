@@ -37,12 +37,49 @@ jobs:
         run: |
           python scripts/fetch_hsi_daily.py
 
+      - name: Inspect generated files
+        run: |
+          echo "===== pwd ====="
+          pwd
+
+          echo "===== list repo root ====="
+          ls -la
+
+          echo "===== list data_raw ====="
+          ls -la data_raw || true
+
+          echo "===== list data_raw/HSI ====="
+          ls -la data_raw/HSI || true
+
+          echo "===== list data_clean ====="
+          ls -la data_clean || true
+
+          echo "===== list data_clean/HSI ====="
+          ls -la data_clean/HSI || true
+
+          echo "===== list refresh_log ====="
+          ls -la refresh_log || true
+
+          echo "===== preview refresh_log tail ====="
+          tail -n 20 refresh_log/refresh_log.csv || true
+
       - name: Commit and push changes
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add data_raw/HSI/hsi_raw.csv data_clean/HSI/hsi_clean.csv refresh_log/refresh_log.csv || true
+          echo "===== git status before add ====="
+          git status -sb
+
+          git add data_raw/HSI/hsi_raw.csv
+          git add data_clean/HSI/hsi_clean.csv
+          git add refresh_log/refresh_log.csv
+
+          echo "===== git status after add ====="
+          git status -sb
+
+          echo "===== staged diff summary ====="
+          git diff --cached --stat || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."

@@ -1,3 +1,4 @@
+import math
 import os
 from datetime import datetime, timezone
 
@@ -120,7 +121,6 @@ def prepare_raw_table(df_raw: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"hk_daily raw missing required columns: {missing}")
 
     df = df_raw.copy()
-
     df["trade_date"] = pd.to_datetime(df["trade_date"], format="%Y%m%d", errors="coerce")
     df = df.dropna(subset=["trade_date"]).copy()
 
@@ -160,9 +160,10 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
     clean["ret_1d"] = clean["pct_change"]
+
     ratio = clean["close"] / clean["prev_close"]
     clean["log_ret_1d"] = ratio.map(
-        lambda x: pd.NA if pd.isna(x) or x <= 0 else pd.np.log(x)  # type: ignore[attr-defined]
+        lambda x: pd.NA if pd.isna(x) or x <= 0 else math.log(x)
     )
 
     clean["quality_flag"] = "PASS"

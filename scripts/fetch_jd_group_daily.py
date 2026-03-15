@@ -5,7 +5,7 @@ import pandas as pd
 import tushare as ts
 
 
-TS_CODE = "9618.HK"
+TS_CODE = "09618.HK"
 SYMBOL = "9618.HK"
 MARKET = "HK"
 ASSET_TYPE = "equity"

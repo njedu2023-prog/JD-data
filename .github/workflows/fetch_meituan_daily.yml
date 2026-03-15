@@ -1,0 +1,50 @@
+name: fetch meituan_daily
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 11 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-meituan-daily:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+      TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas tushare
+
+      - name: Run fetch_meituan_daily.py
+        run: python scripts/fetch_meituan_daily.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            data_raw/3690.HK/hk_daily_raw.csv \
+            data_clean/3690.HK/daily_clean.csv \
+            refresh_log/refresh_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "refresh 3690.HK raw clean"
+            git push
+          fi

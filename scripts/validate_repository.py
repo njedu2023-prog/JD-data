@@ -7,6 +7,8 @@ import pandas as pd
 REQUIRED_FILES = [
     "data_raw/02618.HK/hk_daily_raw.csv",
     "data_clean/02618.HK/daily_clean.csv",
+    "data_raw/9618.HK/hk_daily_raw.csv",
+    "data_clean/9618.HK/daily_clean.csv",
     "calendar/hk_trade_calendar.csv",
     "data_raw/HSI/hsi_raw.csv",
     "data_clean/HSI/hsi_clean.csv",
@@ -30,8 +32,7 @@ def check_required_files() -> None:
     print("[OK] required files exist")
 
 
-def check_hk_daily_clean() -> None:
-    path = "data_clean/02618.HK/daily_clean.csv"
+def check_equity_clean(path: str, symbol: str) -> None:
     df = pd.read_csv(path)
 
     required_cols = [
@@ -59,7 +60,7 @@ def check_hk_daily_clean() -> None:
     _assert_non_null(df, path, required_cols)
     _assert_no_duplicate_dates(df, path, "trade_date")
     _assert_sorted(df, path, "trade_date")
-    _assert_constant_values(df, path, "symbol", {"02618.HK"})
+    _assert_constant_values(df, path, "symbol", {symbol})
     _assert_constant_values(df, path, "market", {"HK"})
     _assert_constant_values(df, path, "asset_type", {"equity"})
     _assert_quality_pass_only(df, path)
@@ -148,7 +149,14 @@ def check_refresh_log() -> None:
     _assert_not_empty(df, path)
     _assert_non_null(df, path, required_cols)
 
-    required_symbols = {"02618.HK", "HK_CALENDAR", "HSI", "HKTECH", "HSCEI"}
+    required_symbols = {
+        "02618.HK",
+        "9618.HK",
+        "HK_CALENDAR",
+        "HSI",
+        "HKTECH",
+        "HSCEI",
+    }
     existing_symbols = set(df["symbol"].astype(str).unique().tolist())
     missing_symbols = required_symbols - existing_symbols
     if missing_symbols:
@@ -201,7 +209,8 @@ def _assert_quality_pass_only(df: pd.DataFrame, path: str) -> None:
 
 def main() -> None:
     check_required_files()
-    check_hk_daily_clean()
+    check_equity_clean("data_clean/02618.HK/daily_clean.csv", "02618.HK")
+    check_equity_clean("data_clean/9618.HK/daily_clean.csv", "9618.HK")
     check_calendar()
     check_index_clean("data_clean/HSI/hsi_clean.csv", "HSI")
     check_index_clean("data_clean/HKTECH/hktech_clean.csv", "HKTECH")

@@ -47,6 +47,10 @@ jobs:
         run: |
           python scripts/fetch_alibaba_daily.py
 
+      - name: Run zto daily fetch script
+        run: |
+          python scripts/fetch_zto_daily.py
+
       - name: Run hk calendar fetch script
         run: |
           python scripts/fetch_hk_calendar.py
@@ -85,6 +89,9 @@ jobs:
 
           git add data_raw/9988.HK/hk_daily_raw.csv
           git add data_clean/9988.HK/daily_clean.csv
+
+          git add data_raw/2057.HK/hk_daily_raw.csv
+          git add data_clean/2057.HK/daily_clean.csv
 
           git add calendar/hk_trade_calendar.csv
 

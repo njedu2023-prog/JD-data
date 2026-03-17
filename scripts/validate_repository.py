@@ -13,6 +13,8 @@ REQUIRED_FILES = [
     "data_clean/3690.HK/daily_clean.csv",
     "data_raw/9988.HK/hk_daily_raw.csv",
     "data_clean/9988.HK/daily_clean.csv",
+    "data_raw/2057.HK/hk_daily_raw.csv",
+    "data_clean/2057.HK/daily_clean.csv",
     "calendar/hk_trade_calendar.csv",
     "data_raw/HSI/hsi_raw.csv",
     "data_clean/HSI/hsi_clean.csv",
@@ -158,6 +160,7 @@ def check_refresh_log() -> None:
         "9618.HK",
         "3690.HK",
         "9988.HK",
+        "2057.HK",
         "HK_CALENDAR",
         "HSI",
         "HKTECH",
@@ -219,6 +222,7 @@ def main() -> None:
     check_equity_clean("data_clean/9618.HK/daily_clean.csv", "9618.HK")
     check_equity_clean("data_clean/3690.HK/daily_clean.csv", "3690.HK")
     check_equity_clean("data_clean/9988.HK/daily_clean.csv", "9988.HK")
+    check_equity_clean("data_clean/2057.HK/daily_clean.csv", "2057.HK")
     check_calendar()
     check_index_clean("data_clean/HSI/hsi_clean.csv", "HSI")
     check_index_clean("data_clean/HKTECH/hktech_clean.csv", "HKTECH")

@@ -2,6 +2,15 @@ name: refresh all and validate
 
 on:
   workflow_dispatch:
+    inputs:
+      include_1519_in_gate:
+        description: "是否将 1519.HK 纳入仓库级总闸门（1=纳入，0=不纳入）"
+        required: false
+        default: "0"
+      run_1519_fetch:
+        description: "是否执行 1519.HK 单线刷新（1=执行，0=跳过）"
+        required: false
+        default: "0"
 
 concurrency:
   group: jd-data-refresh-all-and-validate
@@ -16,6 +25,8 @@ jobs:
     env:
       TZ: Asia/Shanghai
       TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      INCLUDE_1519_IN_GATE: ${{ github.event.inputs.include_1519_in_gate || '0' }}
+      RUN_1519_FETCH: ${{ github.event.inputs.run_1519_fetch || '0' }}
 
     steps:
       - name: Checkout repository
@@ -30,6 +41,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pandas tushare yfinance
+
+      - name: Show gate mode
+        run: |
+          echo "TZ=$TZ"
+          echo "INCLUDE_1519_IN_GATE=$INCLUDE_1519_IN_GATE"
+          echo "RUN_1519_FETCH=$RUN_1519_FETCH"
 
       - name: Run hk daily fetch script
         run: |
@@ -50,6 +67,11 @@ jobs:
       - name: Run zto daily fetch script
         run: |
           python scripts/fetch_zto_daily.py
+
+      - name: Run jtexpress daily fetch script
+        if: env.RUN_1519_FETCH == '1'
+        run: |
+          python scripts/fetch_jtexpress_daily.py
 
       - name: Run hk calendar fetch script
         run: |
@@ -93,6 +115,11 @@ jobs:
           git add data_raw/2057.HK/hk_daily_raw.csv
           git add data_clean/2057.HK/daily_clean.csv
 
+          if [ "$RUN_1519_FETCH" = "1" ]; then
+            git add data_raw/1519.HK/hk_daily_raw.csv
+            git add data_clean/1519.HK/daily_clean.csv
+          fi
+
           git add calendar/hk_trade_calendar.csv
 
           git add data_raw/HSI/hsi_raw.csv
@@ -116,11 +143,6 @@ jobs:
 
           git commit -m "refresh all market data"
           git push
-
-      - name: Install validation dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pandas
 
       - name: Run repository validation
         run: |

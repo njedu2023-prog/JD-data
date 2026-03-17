@@ -19,6 +19,7 @@ JD-data 是一个面向港股单票、市场基准与代理层的源数据仓库
 - 恒生中国企业指数 `HSCEI`
 - 京东集团代理层 `9618.HK`
 - 美团代理层 `3690.HK`
+- 阿里巴巴代理层 `9988.HK`
 
 ---
 
@@ -60,6 +61,7 @@ JD-data/
 │       ├── fetch_hk_daily.yml
 │       ├── fetch_jd_group_daily.yml
 │       ├── fetch_meituan_daily.yml
+│       ├── fetch_alibaba_daily.yml
 │       ├── fetch_hk_calendar.yml
 │       ├── fetch_hsi_daily.yml
 │       ├── fetch_hktech_daily.yml
@@ -76,6 +78,8 @@ JD-data/
 │   │   └── hk_daily_raw.csv
 │   ├── 3690.HK/
 │   │   └── hk_daily_raw.csv
+│   ├── 9988.HK/
+│   │   └── hk_daily_raw.csv
 │   ├── HSI/
 │   │   └── hsi_raw.csv
 │   ├── HKTECH/
@@ -89,6 +93,8 @@ JD-data/
 │   │   └── daily_clean.csv
 │   ├── 3690.HK/
 │   │   └── daily_clean.csv
+│   ├── 9988.HK/
+│   │   └── daily_clean.csv
 │   ├── HSI/
 │   │   └── hsi_clean.csv
 │   ├── HKTECH/
@@ -101,6 +107,7 @@ JD-data/
 │   ├── fetch_hk_daily.py
 │   ├── fetch_jd_group_daily.py
 │   ├── fetch_meituan_daily.py
+│   ├── fetch_alibaba_daily.py
 │   ├── fetch_hk_calendar.py
 │   ├── fetch_hsi_daily.py
 │   ├── fetch_hktech_daily.py
@@ -160,7 +167,22 @@ JD-data/
 
 ---
 
-### 4. 港股交易日历表
+### 4. 阿里巴巴代理层主表
+
+当前已落地：
+
+* `data_raw/9988.HK/hk_daily_raw.csv`
+* `data_clean/9988.HK/daily_clean.csv`
+
+职责说明：
+
+* 提供电商平台核心代理层
+* 为后续京东物流与平台竞争格局、消费环境、平台侧联动分析提供正式底层表
+* 当前已完成单线 raw / clean 接入，并已纳入仓库级正式成员体系
+
+---
+
+### 5. 港股交易日历表
 
 当前已落地：
 
@@ -173,7 +195,7 @@ JD-data/
 
 ---
 
-### 5. 恒生指数 HSI
+### 6. 恒生指数 HSI
 
 当前已落地：
 
@@ -187,7 +209,7 @@ JD-data/
 
 ---
 
-### 6. 恒生科技指数 HKTECH
+### 7. 恒生科技指数 HKTECH
 
 当前已落地：
 
@@ -201,7 +223,7 @@ JD-data/
 
 ---
 
-### 7. 恒生中国企业指数 HSCEI
+### 8. 恒生中国企业指数 HSCEI
 
 当前已落地：
 
@@ -216,7 +238,7 @@ JD-data/
 
 ---
 
-### 8. refresh_log 统一刷新日志表
+### 9. refresh_log 统一刷新日志表
 
 当前已落地：
 
@@ -259,6 +281,7 @@ JD-data/
 * 京东物流单票主表
 * 京东集团代理层主表
 * 美团代理层主表
+* 阿里巴巴代理层主表
 * 交易日历表
 * 港股市场基准表
 * 港股科技风格表
@@ -301,6 +324,7 @@ JD-data/
 * `02618.HK`
 * `9618.HK`
 * `3690.HK`
+* `9988.HK`
 * `HK_CALENDAR`
 * `HSI`
 * `HKTECH`
@@ -317,6 +341,7 @@ JD-data/
 * 京东物流日线刷新
 * 京东集团日线刷新
 * 美团日线刷新
+* 阿里巴巴日线刷新
 * 港股交易日历刷新
 * 恒生指数刷新
 * 恒生科技指数刷新
@@ -337,7 +362,7 @@ JD-data/
 
 并且当前已经从单票底座进一步升级到：
 
-**“京东物流 + 京东集团代理层 + 美团代理层 + 港股市场基准”的正式底层联动底座阶段。**
+**“京东物流 + 京东集团代理层 + 美团代理层 + 阿里巴巴代理层 + 港股市场基准”的正式底层联动底座阶段。**
 
 ---
 

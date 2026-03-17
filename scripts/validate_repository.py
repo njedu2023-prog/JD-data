@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Set
+from typing import List, Sequence, Set
 
 import pandas as pd
 
@@ -224,14 +224,21 @@ def _assert_price_bounds(df: pd.DataFrame, path: str) -> None:
     high = pd.to_numeric(df["high"], errors="coerce")
     low = pd.to_numeric(df["low"], errors="coerce")
     close = pd.to_numeric(df["close"], errors="coerce")
-    prev_close = pd.to_numeric(df["prev_close"], errors="coerce")
 
-    if ((high < low)).any():
+    if (high < low).any():
         raise ValueError(f"{path} has rows where high < low")
-    if ((high < open_) | (high < close) | (high < prev_close)).any():
-        raise ValueError(f"{path} has rows where high is below open/close/prev_close")
-    if ((low > open_) | (low > close) | (low > prev_close)).any():
-        raise ValueError(f"{path} has rows where low is above open/close/prev_close")
+
+    if (high < open_).any():
+        raise ValueError(f"{path} has rows where high < open")
+
+    if (high < close).any():
+        raise ValueError(f"{path} has rows where high < close")
+
+    if (low > open_).any():
+        raise ValueError(f"{path} has rows where low > open")
+
+    if (low > close).any():
+        raise ValueError(f"{path} has rows where low > close")
 
 
 def _assert_trade_date_latest_not_blank(df: pd.DataFrame, path: str, date_col: str) -> None:
@@ -242,7 +249,8 @@ def _assert_trade_date_latest_not_blank(df: pd.DataFrame, path: str, date_col: s
 
 def _assert_values_in_set(df: pd.DataFrame, path: str, col: str, allowed: Set[str]) -> None:
     values = set(df[col].dropna().astype(str).str.upper().unique().tolist())
-    if not values.issubset({x.upper() for x in allowed}):
+    allowed_upper = {x.upper() for x in allowed}
+    if not values.issubset(allowed_upper):
         raise ValueError(f"{path} column {col} has invalid values: {sorted(values)}")
 
 
@@ -290,7 +298,21 @@ def check_clean(spec: CleanSpec) -> None:
             "log_ret_1d",
         ],
     )
-    _assert_non_negative(df, path, ["open", "high", "low", "close", "prev_close", "volume", "amount"])
+
+    _assert_non_negative(
+        df,
+        path,
+        [
+            "open",
+            "high",
+            "low",
+            "close",
+            "prev_close",
+            "volume",
+            "amount",
+        ],
+    )
+
     _assert_price_bounds(df, path)
 
     print(f"[OK] validated {path}")
@@ -333,7 +355,6 @@ def check_refresh_log() -> None:
     _assert_parseable_dates(df, path, "refresh_time")
     _assert_numeric_columns(df, path, ["rows_raw", "rows_clean", "rows_fail"])
     _assert_non_negative(df, path, ["rows_raw", "rows_clean", "rows_fail"])
-
     _assert_values_in_set(df, path, "status", {"SUCCESS", "FAIL", "PARTIAL_SUCCESS"})
 
     required_symbols = _required_refresh_symbols()
@@ -342,7 +363,6 @@ def check_refresh_log() -> None:
     if missing_symbols:
         raise ValueError(f"{path} missing symbols in refresh log: {sorted(missing_symbols)}")
 
-    # 对于正式纳入总闸门的 symbol，至少要出现过一次 SUCCESS
     for symbol in sorted(required_symbols):
         sub = df[df["symbol"].astype(str) == symbol].copy()
         if sub.empty:

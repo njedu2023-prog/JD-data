@@ -355,7 +355,12 @@ def check_refresh_log() -> None:
     _assert_parseable_dates(df, path, "refresh_time")
     _assert_numeric_columns(df, path, ["rows_raw", "rows_clean", "rows_fail"])
     _assert_non_negative(df, path, ["rows_raw", "rows_clean", "rows_fail"])
-    _assert_values_in_set(df, path, "status", {"SUCCESS", "FAIL", "PARTIAL_SUCCESS"})
+    _assert_values_in_set(
+        df,
+        path,
+        "status",
+        {"SUCCESS", "FAIL", "PARTIAL_SUCCESS", "ERROR", "EMPTY"},
+    )
 
     required_symbols = _required_refresh_symbols()
     existing_symbols = set(df["symbol"].astype(str).unique().tolist())

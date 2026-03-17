@@ -158,6 +158,7 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     clean["volume"] = pd.to_numeric(df["vol"], errors="coerce")
     clean["amount"] = pd.to_numeric(df["amount"], errors="coerce")
 
+    # 历史首行通常没有 prev_close，不进入正式 clean 主表
     clean = clean[~clean["prev_close"].isna()].copy().reset_index(drop=True)
 
     clean["pct_change"] = clean["close"] / clean["prev_close"] - 1.0
@@ -218,6 +219,12 @@ def build_clean_table(df_raw: pd.DataFrame) -> pd.DataFrame:
     ].copy()
 
     return clean
+
+
+def split_clean_pass_fail(clean: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    fail_rows = int((clean["quality_flag"] == "FAIL").sum())
+    clean_pass = clean[clean["quality_flag"] == "PASS"].copy().reset_index(drop=True)
+    return clean_pass, fail_rows
 
 
 def validate_clean_table(clean: pd.DataFrame) -> None:
@@ -305,12 +312,12 @@ def main() -> None:
 
         df_raw.to_csv(RAW_PATH, index=False, encoding="utf-8")
 
-        clean = build_clean_table(df_raw)
-        rows_clean = len(clean)
-        fail_rows = int((clean["quality_flag"] == "FAIL").sum())
+        clean_all = build_clean_table(df_raw)
+        clean_pass, fail_rows = split_clean_pass_fail(clean_all)
+        rows_clean = len(clean_pass)
 
-        validate_clean_table(clean)
-        clean.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
+        validate_clean_table(clean_pass)
+        clean_pass.to_csv(CLEAN_PATH, index=False, encoding="utf-8")
 
         append_refresh_log(
             status="success",

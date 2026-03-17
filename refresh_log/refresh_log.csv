@@ -83,3 +83,13 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-03-17T21:50:21Z,tushare.index_global,HSI,1525,1524,0,success,hsi full refresh completed via index_global
 2026-03-17T21:50:22Z,tushare.index_global,HKTECH,1386,1386,0,success,hktech full refresh completed via index_global
 2026-03-17T21:50:23Z,yfinance.^HSCE,HSCEI,1526,1525,0,success,hscei full refresh completed via yfinance ^HSCE
+2026-03-17T21:55:51Z,tushare.hk_daily,02618.HK,1180,1180,0,success,full refresh from listing date completed
+2026-03-17T21:55:53Z,tushare.hk_daily,9618.HK,1412,1411,0,success,full refresh from listing date completed
+2026-03-17T21:55:55Z,tushare.hk_daily,3690.HK,1840,1839,0,success,full refresh from listing date completed
+2026-03-17T21:55:56Z,tushare.hk_daily,9988.HK,1550,1549,0,success,full refresh from listing date completed
+2026-03-17T21:55:58Z,tushare.hk_daily,2057.HK,1341,1338,2,success,full refresh from listing date completed
+2026-03-17T21:55:59Z,tushare.hk_daily,1519.HK,586,586,0,success,full refresh from listing date completed
+2026-03-17T21:56:00Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
+2026-03-17T21:56:02Z,tushare.index_global,HSI,1525,1524,0,success,hsi full refresh completed via index_global
+2026-03-17T21:56:03Z,tushare.index_global,HKTECH,1386,1386,0,success,hktech full refresh completed via index_global
+2026-03-17T21:56:05Z,yfinance.^HSCE,HSCEI,1526,1525,0,success,hscei full refresh completed via yfinance ^HSCE

@@ -19,11 +19,17 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ingest-fundamental-manual
+  cancel-in-progress: false
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
     env:
       TZ: Asia/Shanghai
+      FUNDAMENTAL_CSV: data_fundamental/02618.HK/fundamental_quarterly.csv
+      INGEST_LOG: data_fundamental/02618.HK/ingest_log.csv
 
     steps:
       - name: Checkout repository
@@ -44,8 +50,9 @@ jobs:
           echo "dry_run=${{ github.event.inputs.dry_run }}"
 
           test -f "scripts/ingest_fundamental_stub.py"
-          test -f "data_fundamental/02618.HK/fundamental_quarterly.csv"
-          test -f "data_fundamental/02618.HK/ingest_log.csv"
+          test -f "scripts/validate_fundamental_table.py"
+          test -f "${FUNDAMENTAL_CSV}"
+          test -f "${INGEST_LOG}"
           test -f "${{ github.event.inputs.input_json }}"
 
       - name: Show input preview
@@ -55,6 +62,12 @@ jobs:
           echo "===== INPUT FILE PREVIEW BEGIN ====="
           sed -n '1,220p' "${{ github.event.inputs.input_json }}"
           echo "===== INPUT FILE PREVIEW END ====="
+
+      - name: Validate baseline table before ingest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_fundamental_table.py --file "${FUNDAMENTAL_CSV}"
 
       - name: Dry run ingest
         if: ${{ github.event.inputs.dry_run == 'true' }}
@@ -75,6 +88,13 @@ jobs:
             --input "${{ github.event.inputs.input_json }}" \
             --operator "${{ github.event.inputs.operator }}"
 
+      - name: Validate table after ingest
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_fundamental_table.py --file "${FUNDAMENTAL_CSV}"
+
       - name: Show updated outputs
         if: ${{ github.event.inputs.dry_run != 'true' }}
         shell: bash
@@ -82,10 +102,13 @@ jobs:
           set -euo pipefail
 
           echo "===== FUNDAMENTAL TABLE HEAD ====="
-          sed -n '1,20p' data_fundamental/02618.HK/fundamental_quarterly.csv || true
+          sed -n '1,20p' "${FUNDAMENTAL_CSV}" || true
+
+          echo "===== FUNDAMENTAL TABLE TAIL ====="
+          tail -n 20 "${FUNDAMENTAL_CSV}" || true
 
           echo "===== INGEST LOG TAIL ====="
-          tail -n 20 data_fundamental/02618.HK/ingest_log.csv || true
+          tail -n 20 "${INGEST_LOG}" || true
 
       - name: Commit and push changes
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -96,8 +119,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data_fundamental/02618.HK/fundamental_quarterly.csv
-          git add data_fundamental/02618.HK/ingest_log.csv
+          git add "${FUNDAMENTAL_CSV}"
+          git add "${INGEST_LOG}"
 
           if git diff --cached --quiet; then
             echo "No changes to commit."

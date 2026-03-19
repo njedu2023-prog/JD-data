@@ -1,0 +1,108 @@
+name: ingest_fundamental_manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      input_json:
+        description: "待导入 JSON 路径（相对仓库根目录）"
+        required: true
+        default: "data_fundamental/02618.HK/staging/temp_fundamental_records_2025.json"
+      operator:
+        description: "本次导入操作者标识"
+        required: true
+        default: "github-actions"
+      dry_run:
+        description: "是否仅预演不落库（true/false）"
+        required: true
+        default: "false"
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate required files exist
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "input_json=${{ github.event.inputs.input_json }}"
+          echo "operator=${{ github.event.inputs.operator }}"
+          echo "dry_run=${{ github.event.inputs.dry_run }}"
+
+          test -f "scripts/ingest_fundamental_stub.py"
+          test -f "data_fundamental/02618.HK/fundamental_quarterly.csv"
+          test -f "data_fundamental/02618.HK/ingest_log.csv"
+          test -f "${{ github.event.inputs.input_json }}"
+
+      - name: Show input preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "===== INPUT FILE PREVIEW BEGIN ====="
+          sed -n '1,220p' "${{ github.event.inputs.input_json }}"
+          echo "===== INPUT FILE PREVIEW END ====="
+
+      - name: Dry run ingest
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ingest_fundamental_stub.py \
+            --input "${{ github.event.inputs.input_json }}" \
+            --operator "${{ github.event.inputs.operator }}" \
+            --dry-run
+
+      - name: Execute ingest
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/ingest_fundamental_stub.py \
+            --input "${{ github.event.inputs.input_json }}" \
+            --operator "${{ github.event.inputs.operator }}"
+
+      - name: Show updated outputs
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== FUNDAMENTAL TABLE HEAD ====="
+          sed -n '1,20p' data_fundamental/02618.HK/fundamental_quarterly.csv || true
+
+          echo "===== INGEST LOG TAIL ====="
+          tail -n 20 data_fundamental/02618.HK/ingest_log.csv || true
+
+      - name: Commit and push changes
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data_fundamental/02618.HK/fundamental_quarterly.csv
+          git add data_fundamental/02618.HK/ingest_log.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "ingest fundamental data from $(basename "${{ github.event.inputs.input_json }}")"
+          git push

@@ -1,0 +1,64 @@
+name: Build Fundamental Features
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-fundamental-features:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show repo status before build
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          ls -la data_fundamental/02618.HK || true
+          test -f data_fundamental/02618.HK/fundamental_statement_items.csv
+          test -f data_fundamental/02618.HK/fundamental_features.csv
+
+      - name: Run build_fundamental_features.py
+        run: |
+          python scripts/build_fundamental_features.py
+
+      - name: Show head of output csv
+        run: |
+          echo "----- fundamental_features.csv (head) -----"
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path("data_fundamental/02618.HK/fundamental_features.csv")
+          if not p.exists():
+              raise SystemExit("fundamental_features.csv not found after build")
+
+          lines = p.read_text(encoding="utf-8-sig").splitlines()
+          for line in lines[:20]:
+              print(line)
+          print(f"TOTAL_LINES={len(lines)}")
+          PY
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data_fundamental/02618.HK/fundamental_features.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "build fundamental features for 02618.HK"
+            git push
+          fi

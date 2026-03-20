@@ -2,6 +2,11 @@ name: Ingest Statement Items JSON
 
 on:
   workflow_dispatch:
+    inputs:
+      year:
+        description: "Fiscal year to ingest, e.g. 2025 / 2024 / 2023 / 2022 / 2021"
+        required: true
+        default: "2025"
 
 permissions:
   contents: write
@@ -21,19 +26,32 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Resolve target paths
+        run: |
+          YEAR="${{ github.event.inputs.year }}"
+          JSON_PATH="data_fundamental/02618.HK/temp_statement_items_${YEAR}_fy.json"
+          CSV_PATH="data_fundamental/02618.HK/fundamental_statement_items.csv"
+
+          echo "YEAR=${YEAR}" >> $GITHUB_ENV
+          echo "JSON_PATH=${JSON_PATH}" >> $GITHUB_ENV
+          echo "CSV_PATH=${CSV_PATH}" >> $GITHUB_ENV
+
       - name: Show repo status before ingest
         run: |
           echo "PWD=$(pwd)"
+          echo "YEAR=${YEAR}"
+          echo "JSON_PATH=${JSON_PATH}"
+          echo "CSV_PATH=${CSV_PATH}"
           ls -la
           ls -la data_fundamental/02618.HK || true
-          test -f data_fundamental/02618.HK/temp_statement_items_2025_fy.json
-          test -f data_fundamental/02618.HK/fundamental_statement_items.csv
+          test -f "${JSON_PATH}"
+          test -f "${CSV_PATH}"
 
       - name: Run ingest_statement_items_json.py
         run: |
           python scripts/ingest_statement_items_json.py \
-            --json data_fundamental/02618.HK/temp_statement_items_2025_fy.json \
-            --csv data_fundamental/02618.HK/fundamental_statement_items.csv
+            --json "${JSON_PATH}" \
+            --csv "${CSV_PATH}"
 
       - name: Show head of output csv
         run: |
@@ -61,6 +79,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "ingest statement items json for 02618.HK"
+            git commit -m "ingest statement items json for 02618.HK ${YEAR}"
             git push
           fi

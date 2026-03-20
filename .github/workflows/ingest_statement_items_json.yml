@@ -1,0 +1,66 @@
+name: Ingest Statement Items JSON
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ingest-statement-items:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show repo status before ingest
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          ls -la data_fundamental/02618.HK || true
+          test -f data_fundamental/02618.HK/temp_statement_items_2025_fy.json
+          test -f data_fundamental/02618.HK/fundamental_statement_items.csv
+
+      - name: Run ingest_statement_items_json.py
+        run: |
+          python scripts/ingest_statement_items_json.py \
+            --json data_fundamental/02618.HK/temp_statement_items_2025_fy.json \
+            --csv data_fundamental/02618.HK/fundamental_statement_items.csv
+
+      - name: Show head of output csv
+        run: |
+          echo "----- fundamental_statement_items.csv (head) -----"
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path("data_fundamental/02618.HK/fundamental_statement_items.csv")
+          if not p.exists():
+              raise SystemExit("fundamental_statement_items.csv not found after ingest")
+
+          lines = p.read_text(encoding="utf-8-sig").splitlines()
+          for line in lines[:20]:
+              print(line)
+          print(f"TOTAL_LINES={len(lines)}")
+          PY
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data_fundamental/02618.HK/fundamental_statement_items.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "ingest statement items json for 02618.HK"
+            git push
+          fi

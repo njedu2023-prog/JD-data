@@ -15,8 +15,8 @@ build_fundamental_features.py
 4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V2.3 设计原则：
-- 当前主线第一优先：打透 2021–2025 annual 行映射
+V2.4 设计原则：
+- 当前主线第一优先：annual 主干已闭环，转入口径显式化 + 非 annual 消费规则建设
 - 不回退旧话题，不重复验证 workflow
 - 不再只依赖简单 pivot merge，而是显式做行级消费
 - annual / semiannual / quarter 三类 period_type 统一归一
@@ -24,7 +24,30 @@ V2.3 设计原则：
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
 - statement_items 金额字段统一标准化到 million RMB 后再进入 features
 - 修复 quality_flag 误判：不再把 external_customer_revenue 与 revenue_external 视为同口径冲突字段
-- 新增 annual 安全补齐：revenue_other_customers / free_cash_inflow / payables aging 单缺口
+
+核心口径约束（必须长期保持一致）：
+1. trade_payables 采用“仓库统一总额口径”
+   - 默认优先消费 item 层已经整理好的 trade_payables
+   - 当 supplier_finance_arrangements 同时存在时，trade_payables 视为可包含该子项
+   - 因此 supplier_finance_ratio = supplier_finance_arrangements / trade_payables
+   - payables aging 四桶若做 annual 单缺口补齐，也以该统一总额口径为锚
+   - 该口径用于避免“应付账款本体”与“应付总额（含供应链金融）”混用
+
+2. annual-only 安全补齐
+   - revenue_other_customers：若缺失，可用 revenue - revenue_integrated_supply_chain 安全补齐
+   - free_cash_inflow：若缺失，可用 operating_cash_flow - capex_net 安全补齐
+   - payables aging：若四桶恰缺一个，可用 trade_payables 差额补齐
+   - 上述补齐只允许在 annual 发生，不外推到 semiannual / quarter
+
+3. 非 annual 消费规则
+   - semiannual：允许消费核心摘要字段，允许少量轻派生，但不主动补齐附注类字段
+   - quarter：优先消费利润表 / 运营摘要，不默认要求完整资产负债表与附注层
+   - 非 annual 场景下，账龄、供应链金融、客户结构拆分、自由现金流推导等重派生默认降级或禁算
+
+4. quality_flag 三层逻辑
+   - annual：可判 CONFIRMED / PARTIAL / RAW
+   - semiannual：最高到 PARTIAL
+   - quarter：最高到 PARTIAL，但默认更保守
 """
 
 from __future__ import annotations
@@ -39,7 +62,7 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V2.3"
+DATA_VERSION = "V2.4"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
@@ -171,6 +194,82 @@ PAYABLES_AGING_COLS = [
     "payables_3_to_6m",
     "payables_6_to_12m",
     "payables_over_12m",
+]
+
+QUARTER_STABLE_FIELDS = [
+    "revenue",
+    "gross_profit",
+    "net_profit",
+    "operating_cash_flow",
+    "warehouse_count",
+]
+
+SEMIANNUAL_STABLE_FIELDS = [
+    "revenue",
+    "gross_profit",
+    "net_profit",
+    "operating_cash_flow",
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "current_assets",
+    "current_liabilities",
+    "investing_cash_flow",
+    "financing_cash_flow",
+    "warehouse_count",
+]
+
+NON_ANNUAL_HEAVY_DERIVED_COLS = [
+    "receivables_ratio",
+    "contract_assets_ratio",
+    "inventory_ratio",
+    "payables_ratio",
+    "supplier_finance_ratio",
+    "receivables_over_6m_ratio",
+    "receivables_over_12m_ratio",
+    "payables_over_12m_ratio",
+    "receivables_loss_allowance_ratio",
+    "free_cash_flow_margin",
+    "capex_intensity",
+    "cash_conversion_quality_score",
+    "external_revenue_ratio",
+    "jd_group_revenue_ratio",
+    "integrated_supply_chain_revenue_ratio",
+    "external_isc_revenue_ratio",
+]
+
+SEMIANNUAL_BLOCKED_DERIVED_COLS = [
+    "receivables_over_6m_ratio",
+    "receivables_over_12m_ratio",
+    "payables_over_12m_ratio",
+    "receivables_loss_allowance_ratio",
+    "supplier_finance_ratio",
+    "external_revenue_ratio",
+    "jd_group_revenue_ratio",
+    "integrated_supply_chain_revenue_ratio",
+    "external_isc_revenue_ratio",
+]
+
+QUARTER_BLOCKED_DERIVED_COLS = [
+    "working_capital",
+    "debt_to_asset_ratio",
+    "lease_burden_ratio",
+    "receivables_ratio",
+    "contract_assets_ratio",
+    "inventory_ratio",
+    "payables_ratio",
+    "supplier_finance_ratio",
+    "receivables_over_6m_ratio",
+    "receivables_over_12m_ratio",
+    "payables_over_12m_ratio",
+    "receivables_loss_allowance_ratio",
+    "free_cash_flow_margin",
+    "capex_intensity",
+    "cash_conversion_quality_score",
+    "external_revenue_ratio",
+    "jd_group_revenue_ratio",
+    "integrated_supply_chain_revenue_ratio",
+    "external_isc_revenue_ratio",
 ]
 
 
@@ -551,6 +650,11 @@ def consume_statement_items_into_feature_rows(
 
 
 def derive_revenue_other_customers(row: pd.Series):
+    """
+    annual-only 安全补齐：
+    revenue_other_customers = revenue - revenue_integrated_supply_chain
+    仅作为仓库消费层的兜底推导，不替代原始披露优先级。
+    """
     value = row.get("revenue_other_customers", np.nan)
     if pd.notna(value):
         return value, False
@@ -567,6 +671,11 @@ def derive_revenue_other_customers(row: pd.Series):
 
 
 def derive_free_cash_inflow(row: pd.Series):
+    """
+    annual-only 安全补齐：
+    free_cash_inflow = operating_cash_flow - capex_net
+    若 item 层已有值则优先原值；否则 annual 场景才允许推导。
+    """
     value = row.get("free_cash_inflow", np.nan)
     if pd.notna(value):
         return value, False
@@ -582,8 +691,13 @@ def derive_free_cash_inflow(row: pd.Series):
 
 def derive_single_missing_payables_aging(row: pd.Series) -> Tuple[pd.Series, List[str]]:
     """
-    仅对 payables aging 做安全补齐：
+    annual-only 安全补齐：
     若四个桶恰好缺一个，且 trade_payables 与其余三个桶都有值，则用差额补。
+
+    注意：
+    这里的 trade_payables 采用“仓库统一总额口径”，
+    允许已含 supplier_finance_arrangements。
+    因而该补齐锚点与 supplier_finance_ratio / payables_ratio 使用同一总额口径。
     """
     notes: List[str] = []
 
@@ -607,6 +721,12 @@ def derive_single_missing_payables_aging(row: pd.Series) -> Tuple[pd.Series, Lis
     return row, notes
 
 
+def nullify_columns(row: pd.Series, columns: Iterable[str]) -> pd.Series:
+    for col in columns:
+        row[col] = np.nan
+    return row
+
+
 def derive_row(row: pd.Series) -> pd.Series:
     derived_notes: List[str] = []
 
@@ -622,8 +742,10 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["total_equity"] = total_equity
     row["operating_cash_flow"] = operating_cash_flow
 
-    # annual 安全补齐
-    if row.get("period_type", "") == "annual":
+    period_type = row.get("period_type", "")
+
+    # annual-only 安全补齐
+    if period_type == "annual":
         revenue_other_customers, derived_flag = derive_revenue_other_customers(row)
         if pd.notna(revenue_other_customers):
             row["revenue_other_customers"] = revenue_other_customers
@@ -666,6 +788,7 @@ def derive_row(row: pd.Series) -> pd.Series:
     integrated_supply_chain_revenue = row.get("integrated_supply_chain_revenue", np.nan)
     revenue_external_integrated_supply_chain = row.get("revenue_external_integrated_supply_chain", np.nan)
 
+    # 基础可算项：annual / semiannual 均可，quarter 默认先算后再按规则降级
     if pd.notna(cash_and_cash_equivalents) and pd.notna(borrowings):
         row["net_cash"] = cash_and_cash_equivalents + restricted_cash + term_deposits - borrowings
     else:
@@ -683,6 +806,8 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["contract_assets_ratio"] = pct(contract_assets, revenue)
     row["inventory_ratio"] = pct(inventories, revenue)
     row["payables_ratio"] = pct(trade_payables, revenue)
+
+    # trade_payables 为仓库统一总额口径，supplier_finance_ratio 以此为分母
     row["supplier_finance_ratio"] = pct(supplier_finance_arrangements, trade_payables)
 
     if pd.notna(trade_receivables) and trade_receivables > 0:
@@ -710,6 +835,25 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["jd_group_revenue_ratio"] = pct(revenue_jd_group, revenue)
     row["integrated_supply_chain_revenue_ratio"] = pct(revenue_integrated_preferred, revenue)
     row["external_isc_revenue_ratio"] = pct(revenue_external_integrated_supply_chain, revenue)
+
+    # period-specific 降级/禁算
+    if period_type == "semiannual":
+        # semiannual 允许少量轻派生，但以下附注/拆分/重派生默认禁算
+        row = nullify_columns(row, SEMIANNUAL_BLOCKED_DERIVED_COLS)
+
+        # free_cash_flow_margin / capex_intensity 仅允许源值存在时保留，不主动推导
+        if pd.isna(row.get("free_cash_inflow", np.nan)):
+            row["free_cash_flow_margin"] = np.nan
+        if pd.isna(row.get("capex_net", np.nan)):
+            row["capex_intensity"] = np.nan
+
+        # 现金转换质量分数只在两项均有值时保留
+        if pd.isna(row.get("operating_cash_flow_margin", np.nan)) or pd.isna(row.get("receivables_ratio", np.nan)):
+            row["cash_conversion_quality_score"] = np.nan
+
+    elif period_type == "quarter":
+        # quarter 默认禁掉所有重派生，仅保留轻派生与经营类摘要
+        row = nullify_columns(row, QUARTER_BLOCKED_DERIVED_COLS)
 
     row["_derived_field_notes"] = "|".join(derived_notes)
     return row
@@ -945,10 +1089,19 @@ def build_feature_note(row: pd.Series) -> str:
     if quality_flag == "RAW":
         notes.append("核心字段到位率偏低")
 
-    if period_type == "quarter" and (
-        pd.isna(row.get("current_assets", np.nan)) or pd.isna(row.get("current_liabilities", np.nan))
-    ):
-        notes.append("季度口径可能未披露完整资产负债表")
+    if period_type == "quarter":
+        notes.append("季度口径默认不要求附注层与完整资产负债表")
+        if pd.isna(row.get("current_assets", np.nan)) or pd.isna(row.get("current_liabilities", np.nan)):
+            notes.append("季度口径可能未披露完整资产负债表")
+    elif period_type == "semiannual":
+        notes.append("半年报允许核心摘要消费，附注类指标默认降级")
+    elif period_type == "annual":
+        core_score = annual_core_completeness_score(row)
+        note_score = annual_note_completeness_score(row)
+        if core_score >= 9 and note_score < 3:
+            notes.append("annual 主干字段已通，但附注字段覆盖仍偏薄")
+        elif core_score >= 9 and note_score < 7:
+            notes.append("annual 附注字段覆盖中等，仍可继续补齐")
 
     if pd.notna(row.get("free_cash_flow_margin", np.nan)) and row["free_cash_flow_margin"] < 0:
         notes.append("自由现金流率为负")
@@ -959,14 +1112,6 @@ def build_feature_note(row: pd.Series) -> str:
     if has_implausible_ratio(row):
         notes.append("存在异常比例值，需复核单位或口径")
 
-    if period_type == "annual":
-        core_score = annual_core_completeness_score(row)
-        note_score = annual_note_completeness_score(row)
-        if core_score >= 9 and note_score < 3:
-            notes.append("annual 主干字段已通，但附注字段覆盖仍偏薄")
-        elif core_score >= 9 and note_score < 7:
-            notes.append("annual 附注字段覆盖中等，仍可继续补齐")
-
     derived_field_notes = str(row.get("_derived_field_notes", "") or "").strip()
     if derived_field_notes:
         notes.append(f"安全补齐:{derived_field_notes}")
@@ -976,11 +1121,11 @@ def build_feature_note(row: pd.Series) -> str:
 
 def assign_row_quality_flag(row: pd.Series) -> str:
     """
-    V2.3 逻辑：
+    V2.4 逻辑：
     1. 若出现异常比例爆炸，直接 REVIEW
     2. 若出现真正的资产/收入对账冲突，REVIEW
     3. annual 行按覆盖率判 CONFIRMED / PARTIAL / RAW
-    4. 非 annual 行保持偏保守，但不乱报 REVIEW
+    4. semiannual / quarter 分层处理，不再混为“非 annual”
     """
     if has_implausible_ratio(row):
         return "REVIEW"
@@ -994,32 +1139,24 @@ def assign_row_quality_flag(row: pd.Series) -> str:
 
     if period_type == "annual":
         core_score = annual_core_completeness_score(row)
-        note_score = annual_note_completeness_score(row)
-
         if core_score >= 9 and mapped_nonnull_count >= 20 and pd.notna(item_quality_avg) and item_quality_avg >= 100:
             return "CONFIRMED"
-
         if core_score >= 7 and mapped_nonnull_count >= 10:
             return "PARTIAL"
-
         return "RAW"
 
-    available_count = sum(
-        pd.notna(v)
-        for v in [
-            row.get("revenue", np.nan),
-            row.get("gross_profit", np.nan),
-            row.get("net_profit", np.nan),
-            row.get("operating_cash_flow", np.nan),
-            row.get("total_assets", np.nan),
-            row.get("total_liabilities", np.nan),
-        ]
-    )
-
-    if available_count >= 5:
-        return "PARTIAL"
-    if available_count >= 3:
+    if period_type == "semiannual":
+        available_count = sum(pd.notna(row.get(col, np.nan)) for col in SEMIANNUAL_STABLE_FIELDS)
+        if available_count >= 8:
+            return "PARTIAL"
         return "RAW"
+
+    if period_type == "quarter":
+        available_count = sum(pd.notna(row.get(col, np.nan)) for col in QUARTER_STABLE_FIELDS)
+        if available_count >= 5:
+            return "PARTIAL"
+        return "RAW"
+
     return "RAW"
 
 

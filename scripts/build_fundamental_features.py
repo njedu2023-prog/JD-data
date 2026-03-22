@@ -15,14 +15,15 @@ build_fundamental_features.py
 4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V2.1 设计原则：
+V2.2 设计原则：
 - 当前主线第一优先：打透 2021–2025 annual 行映射
 - 不回退旧话题，不重复验证 workflow
 - 不再只依赖简单 pivot merge，而是显式做行级消费
 - annual / semiannual / quarter 三类 period_type 统一归一
 - statement_items 若存在重复记录，按质量优先级择优
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
-- 关键修复：statement_items 金额字段统一标准化到 million RMB 后再进入 features
+- statement_items 金额字段统一标准化到 million RMB 后再进入 features
+- 修复 quality_flag 误判：不再把 external_customer_revenue 与 revenue_external 视为同口径冲突字段
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V2.1"
+DATA_VERSION = "V2.2"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
@@ -264,7 +265,6 @@ def normalize_amount_to_million_rmb(value, unit, currency, item_code: str):
     unit_text = normalize_unit_text(unit)
     currency_text = str(currency).strip().upper() if pd.notna(currency) else ""
 
-    # 最常见：RMB'000 / CNY'000 -> million RMB
     if unit_text in {
         "rmb'000",
         "rmb000",
@@ -277,7 +277,6 @@ def normalize_amount_to_million_rmb(value, unit, currency, item_code: str):
     }:
         return value / 1000.0
 
-    # 已经是百万人民币
     if unit_text in {
         "rmbmillion",
         "millionrmb",
@@ -289,7 +288,6 @@ def normalize_amount_to_million_rmb(value, unit, currency, item_code: str):
     }:
         return value
 
-    # 十亿人民币 -> 转成百万人民币
     if unit_text in {
         "rmbbillion",
         "billionrmb",
@@ -301,16 +299,9 @@ def normalize_amount_to_million_rmb(value, unit, currency, item_code: str):
     }:
         return value * 1000.0
 
-    # 客户均值之类不处理
-    if "customer" in unit_text:
-        return value
-
-    # customers 不处理
     if "customer" in unit_text or "customers" in unit_text:
         return value
 
-    # N/A 但字段是金额类，尽量按 CNY 默认 million 处理风险太大，不自动改
-    # 这里保守：原值返回
     if currency_text in {"CNY", "RMB"} and unit_text == "":
         return value
 
@@ -795,6 +786,71 @@ def has_implausible_ratio(row: pd.Series) -> bool:
     return False
 
 
+def annual_core_completeness_score(row: pd.Series) -> int:
+    core_fields = [
+        row.get("revenue", np.nan),
+        row.get("total_assets", np.nan),
+        row.get("total_liabilities", np.nan),
+        row.get("trade_receivables", np.nan),
+        row.get("trade_payables", np.nan),
+        row.get("current_assets", np.nan),
+        row.get("current_liabilities", np.nan),
+        row.get("cash_and_cash_equivalents", np.nan),
+        row.get("borrowings", np.nan),
+        row.get("free_cash_flow_margin", np.nan),
+        row.get("external_revenue_ratio", np.nan),
+        row.get("jd_group_revenue_ratio", np.nan),
+    ]
+    return int(sum(pd.notna(v) for v in core_fields))
+
+
+def annual_note_completeness_score(row: pd.Series) -> int:
+    note_fields = [
+        row.get("contract_assets", np.nan),
+        row.get("receivables_within_3m", np.nan),
+        row.get("receivables_3_to_6m", np.nan),
+        row.get("receivables_6_to_12m", np.nan),
+        row.get("receivables_over_12m", np.nan),
+        row.get("receivables_loss_allowance", np.nan),
+        row.get("payables_within_3m", np.nan),
+        row.get("payables_3_to_6m", np.nan),
+        row.get("payables_6_to_12m", np.nan),
+        row.get("payables_over_12m", np.nan),
+        row.get("supplier_finance_arrangements", np.nan),
+    ]
+    return int(sum(pd.notna(v) for v in note_fields))
+
+
+def has_material_data_conflict(row: pd.Series) -> bool:
+    """
+    这里只保留真正更稳的冲突判定：
+    1. total_assets 与 total_liabilities + total_equity 严重不平
+    2. revenue_jd_group + revenue_external 明显大幅偏离 revenue
+    不再拿 external_customer_revenue 与 revenue_external 直接比较。
+    """
+    total_assets = row.get("total_assets", np.nan)
+    total_liabilities = row.get("total_liabilities", np.nan)
+    total_equity = row.get("total_equity", np.nan)
+
+    if pd.notna(total_assets) and pd.notna(total_liabilities) and pd.notna(total_equity):
+        base = max(abs(total_assets), 1.0)
+        rel_gap = abs(total_assets - (total_liabilities + total_equity)) / base
+        if rel_gap > 0.05:
+            return True
+
+    revenue = row.get("revenue", np.nan)
+    revenue_jd_group = row.get("revenue_jd_group", np.nan)
+    revenue_external = row.get("revenue_external", np.nan)
+
+    if pd.notna(revenue) and pd.notna(revenue_jd_group) and pd.notna(revenue_external):
+        base = max(abs(revenue), 1.0)
+        rel_gap = abs((revenue_jd_group + revenue_external) - revenue) / base
+        if rel_gap > 0.08:
+            return True
+
+    return False
+
+
 def build_feature_note(row: pd.Series) -> str:
     notes: List[str] = []
 
@@ -805,71 +861,78 @@ def build_feature_note(row: pd.Series) -> str:
         notes.append("存在口径或来源需复核")
     if quality_flag == "RAW":
         notes.append("核心字段到位率偏低")
+
     if period_type == "quarter" and (
         pd.isna(row.get("current_assets", np.nan)) or pd.isna(row.get("current_liabilities", np.nan))
     ):
         notes.append("季度口径可能未披露完整资产负债表")
+
     if pd.notna(row.get("free_cash_flow_margin", np.nan)) and row["free_cash_flow_margin"] < 0:
         notes.append("自由现金流率为负")
+
     if pd.notna(row.get("receivables_over_12m_ratio", np.nan)) and row["receivables_over_12m_ratio"] >= 10:
         notes.append("长账龄应收占比较高")
-    if period_type == "annual" and int(row.get("mapped_item_nonnull_count", 0) or 0) < 10:
-        notes.append("annual 映射字段仍未完全打透")
+
     if has_implausible_ratio(row):
         notes.append("存在异常比例值，需复核单位或口径")
+
+    if period_type == "annual":
+        core_score = annual_core_completeness_score(row)
+        note_score = annual_note_completeness_score(row)
+        if core_score >= 9 and note_score < 3:
+            notes.append("annual 主干字段已通，但附注字段覆盖仍偏薄")
+        elif core_score >= 9 and note_score < 6:
+            notes.append("annual 附注字段覆盖中等，仍可继续补齐")
 
     return "；".join(notes)
 
 
 def assign_row_quality_flag(row: pd.Series) -> str:
     """
-    V2.1 逻辑：
-    1. annual 行先看关键字段到位率
-    2. 对 revenue_external vs external_customer_revenue 用相对容差，不再动不动 REVIEW
-    3. 若出现异常比例爆炸，直接 REVIEW
+    V2.2 逻辑：
+    1. 若出现异常比例爆炸，直接 REVIEW
+    2. 若出现真正的资产/收入对账冲突，REVIEW
+    3. annual 行按覆盖率判 CONFIRMED / PARTIAL / RAW
+    4. 非 annual 行保持偏保守，但不乱报 REVIEW
     """
     if has_implausible_ratio(row):
         return "REVIEW"
 
-    review_needed = False
+    if has_material_data_conflict(row):
+        return "REVIEW"
 
-    revenue_external = row.get("revenue_external", np.nan)
-    external_customer_revenue = row.get("external_customer_revenue", np.nan)
-    if pd.notna(revenue_external) and pd.notna(external_customer_revenue):
-        base = max(abs(revenue_external), abs(external_customer_revenue), 1.0)
-        rel_diff = abs(revenue_external - external_customer_revenue) / base
-        if rel_diff > 0.05:
-            review_needed = True
-
-    core_fields = [
-        row.get("revenue", np.nan),
-        row.get("total_assets", np.nan),
-        row.get("total_liabilities", np.nan),
-        row.get("trade_receivables", np.nan),
-        row.get("trade_payables", np.nan),
-        row.get("current_assets", np.nan),
-        row.get("current_liabilities", np.nan),
-        row.get("free_cash_flow_margin", np.nan),
-    ]
-    available_count = sum(pd.notna(v) for v in core_fields)
     period_type = row.get("period_type", "")
     item_quality_avg = row.get("item_quality_score_avg", np.nan)
     mapped_nonnull_count = int(row.get("mapped_item_nonnull_count", 0) or 0)
 
-    if review_needed:
-        return "REVIEW"
-
     if period_type == "annual":
-        if available_count >= 7 and mapped_nonnull_count >= 12 and pd.notna(item_quality_avg) and item_quality_avg >= 100:
+        core_score = annual_core_completeness_score(row)
+        note_score = annual_note_completeness_score(row)
+
+        if core_score >= 9 and mapped_nonnull_count >= 20 and pd.notna(item_quality_avg) and item_quality_avg >= 100:
             return "CONFIRMED"
-        if available_count >= 5 and mapped_nonnull_count >= 8:
+
+        if core_score >= 7 and mapped_nonnull_count >= 10:
             return "PARTIAL"
+
         return "RAW"
 
-    if available_count >= 6:
-        return "CONFIRMED"
-    if available_count >= 3:
+    available_count = sum(
+        pd.notna(v)
+        for v in [
+            row.get("revenue", np.nan),
+            row.get("gross_profit", np.nan),
+            row.get("net_profit", np.nan),
+            row.get("operating_cash_flow", np.nan),
+            row.get("total_assets", np.nan),
+            row.get("total_liabilities", np.nan),
+        ]
+    )
+
+    if available_count >= 5:
         return "PARTIAL"
+    if available_count >= 3:
+        return "RAW"
     return "RAW"
 
 
@@ -1019,6 +1082,7 @@ def build_features(base_dir: Path) -> pd.DataFrame:
     period_rank = {"annual": 1, "semiannual": 2, "quarter": 3}
     df["period_rank"] = df["period_type"].map(period_rank).fillna(9)
     df = df.sort_values(["symbol", "report_date_dt", "period_rank"]).drop(columns=["report_date_dt", "period_rank"])
+
     df = df.drop_duplicates(subset=PRIMARY_KEYS, keep="last")
     df = finalize_columns(df)
     return df

@@ -9,17 +9,18 @@ build_fundamental_features.py
 2. 读取标准财报明细层：
    data_fundamental/<symbol>/fundamental_statement_items.csv
 
-3. 将 statement_items 按 item_code 透视为宽表
+3. 以 quarterly 为骨架行，以 statement_items 为事实底表，
+   按 report_date + period_type + item_code 逐行消费映射
 
-4. 与 quarterly 按主键合并
-
-5. 生成下游消费层：
+4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V1 设计原则：
-- 不伪造 Q1 / Q3 缺失项
-- 明细层优先用于派生计算
-- 摘要层保留解释价值
+V2 设计原则：
+- 当前主线第一优先：打透 2021–2025 annual 行映射
+- 不回退旧话题，不重复验证 workflow
+- 不再只依赖简单 pivot merge，而是显式做行级消费
+- annual / semiannual / quarter 三类 period_type 统一归一
+- statement_items 若存在重复记录，按质量优先级择优
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
 - 金额统一默认为 RMB / million_rmb
 """
@@ -36,13 +37,89 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V1"
+DATA_VERSION = "V2"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
 QUARTERLY_FILE = "fundamental_quarterly.csv"
 STATEMENT_ITEMS_FILE = "fundamental_statement_items.csv"
 FEATURES_FILE = "fundamental_features.csv"
+
+TARGET_ITEM_COLUMNS = [
+    "cash_and_cash_equivalents",
+    "restricted_cash",
+    "term_deposits",
+    "trade_receivables",
+    "contract_assets",
+    "inventories",
+    "trade_payables",
+    "borrowings",
+    "lease_liabilities",
+    "current_assets",
+    "current_liabilities",
+    "investing_cash_flow",
+    "financing_cash_flow",
+    "free_cash_inflow",
+    "capex_net",
+    "revenue_jd_group",
+    "revenue_external",
+    "revenue_integrated_supply_chain",
+    "revenue_external_integrated_supply_chain",
+    "revenue_other_customers",
+    "external_isc_customer_count",
+    "external_isc_arpc",
+    "receivables_within_3m",
+    "receivables_3_to_6m",
+    "receivables_6_to_12m",
+    "receivables_over_12m",
+    "receivables_loss_allowance",
+    "payables_within_3m",
+    "payables_3_to_6m",
+    "payables_6_to_12m",
+    "payables_over_12m",
+    "supplier_finance_arrangements",
+    # 兼容可能直接入 item 层的摘要字段
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "operating_cash_flow",
+    "revenue",
+]
+
+CORE_SUMMARY_COLUMNS = [
+    "symbol",
+    "report_date",
+    "period_type",
+    "revenue",
+    "gross_profit",
+    "gross_margin",
+    "net_profit",
+    "non_ifrs_profit",
+    "non_ifrs_ebitda",
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "operating_cash_flow",
+    "external_customer_revenue",
+    "integrated_supply_chain_revenue",
+    "warehouse_count",
+    "warehouse_gfa",
+    "overseas_warehouse_area",
+    "employee_count",
+    "quality_flag",
+]
+
+QUALITY_SCORE_MAP = {
+    "CONFIRMED": 4,
+    "HIGH": 4,
+    "PARTIAL": 3,
+    "MEDIUM": 3,
+    "RAW": 2,
+    "LOW": 2,
+    "REVIEW": 1,
+    "UNKNOWN": 0,
+    "": 0,
+}
 
 
 def now_iso() -> str:
@@ -79,10 +156,42 @@ def first_notnull(series: pd.Series):
     return non_null.iloc[0] if len(non_null) > 0 else np.nan
 
 
+def normalize_report_date_value(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    dt = pd.to_datetime(text, errors="coerce")
+    if pd.isna(dt):
+        return text
+    return dt.strftime("%Y-%m-%d")
+
+
+def normalize_period_type_value(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().lower()
+    if text in {"annual", "fy", "full_year", "year", "yearly"}:
+        return "annual"
+    if text in {"semiannual", "semi-annual", "semi_annual", "interim", "h1", "half_year", "half-year"}:
+        return "semiannual"
+    if text in {"quarter", "quarterly", "q1", "q2", "q3", "q4"}:
+        return "quarter"
+    return text
+
+
+def normalize_item_code_value(value) -> str:
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
 def normalize_keys(df: pd.DataFrame) -> pd.DataFrame:
     df = ensure_columns(df, PRIMARY_KEYS)
-    for col in PRIMARY_KEYS:
-        df[col] = df[col].astype(str).str.strip()
+    df["symbol"] = df["symbol"].astype(str).str.strip()
+    df["report_date"] = df["report_date"].apply(normalize_report_date_value)
+    df["period_type"] = df["period_type"].apply(normalize_period_type_value)
     return df
 
 
@@ -93,31 +202,7 @@ def load_quarterly(base_dir: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=PRIMARY_KEYS)
 
     df = normalize_keys(df)
-
-    # 避免后续 merge 出现缺列
-    keep_cols = [
-        "symbol",
-        "report_date",
-        "period_type",
-        "revenue",
-        "gross_profit",
-        "gross_margin",
-        "net_profit",
-        "non_ifrs_profit",
-        "non_ifrs_ebitda",
-        "total_assets",
-        "total_liabilities",
-        "total_equity",
-        "operating_cash_flow",
-        "external_customer_revenue",
-        "integrated_supply_chain_revenue",
-        "warehouse_count",
-        "warehouse_gfa",
-        "overseas_warehouse_area",
-        "employee_count",
-        "quality_flag",
-    ]
-    df = ensure_columns(df, keep_cols)
+    df = ensure_columns(df, CORE_SUMMARY_COLUMNS)
     df = to_numeric_if_possible(df, exclude=PRIMARY_KEYS + ["quality_flag"])
     return df
 
@@ -128,30 +213,26 @@ def load_statement_items(base_dir: Path) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=PRIMARY_KEYS)
 
-    required_cols = PRIMARY_KEYS + ["item_code", "value"]
+    required_cols = PRIMARY_KEYS + [
+        "statement_type",
+        "item_code",
+        "value",
+        "quality_flag",
+        "source_doc",
+        "source_page",
+        "source_section",
+        "note",
+    ]
     df = ensure_columns(df, required_cols)
     df = normalize_keys(df)
-    df["item_code"] = df["item_code"].astype(str).str.strip()
+    df["item_code"] = df["item_code"].apply(normalize_item_code_value)
+    df["statement_type"] = df["statement_type"].astype(str).str.strip().str.lower()
+    df["quality_flag"] = df["quality_flag"].fillna("").astype(str).str.strip().str.upper()
+    df["source_doc"] = df["source_doc"].fillna("").astype(str).str.strip()
+    df["source_section"] = df["source_section"].fillna("").astype(str).str.strip()
+    df["note"] = df["note"].fillna("").astype(str).str.strip()
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df
-
-
-def pivot_statement_items(df_items: pd.DataFrame) -> pd.DataFrame:
-    if df_items.empty:
-        return pd.DataFrame(columns=PRIMARY_KEYS)
-
-    pivot = (
-        df_items.pivot_table(
-            index=PRIMARY_KEYS,
-            columns="item_code",
-            values="value",
-            aggfunc=first_notnull,
-        )
-        .reset_index()
-    )
-
-    pivot.columns.name = None
-    return pivot
 
 
 def pct(numerator, denominator):
@@ -167,12 +248,188 @@ def coalesce(*values):
     return np.nan
 
 
+def score_item_record(row: pd.Series) -> float:
+    """
+    statement_items 存在重复时择优逻辑：
+    1. value 非空优先
+    2. quality_flag 高优先
+    3. source_doc / source_section 有追溯优先
+    4. note 中若出现 rounded / narrative / estimated 等，降权
+    """
+    score = 0.0
+
+    if pd.notna(row.get("value", np.nan)):
+        score += 100.0
+
+    qf = str(row.get("quality_flag", "")).upper().strip()
+    score += QUALITY_SCORE_MAP.get(qf, 0) * 10.0
+
+    source_doc = str(row.get("source_doc", "")).strip()
+    source_section = str(row.get("source_section", "")).strip()
+    if source_doc:
+        score += 3.0
+    if source_section:
+        score += 2.0
+
+    note = str(row.get("note", "")).lower()
+    if any(token in note for token in ["rounded", "narrative", "estimated", "estimate", "approx"]):
+        score -= 3.0
+
+    statement_type = str(row.get("statement_type", "")).lower()
+    if statement_type in {"balance_sheet", "income_statement", "cash_flow", "note"}:
+        score += 1.0
+
+    return score
+
+
+def build_best_item_records(df_items: pd.DataFrame) -> pd.DataFrame:
+    if df_items.empty:
+        return df_items.copy()
+
+    df = df_items.copy()
+    df["record_score"] = df.apply(score_item_record, axis=1)
+    df = df.sort_values(
+        by=["symbol", "report_date", "period_type", "item_code", "record_score"],
+        ascending=[True, True, True, True, False],
+    )
+    df = df.drop_duplicates(subset=["symbol", "report_date", "period_type", "item_code"], keep="first")
+    return df
+
+
+def build_item_lookup(df_items: pd.DataFrame) -> Dict[Tuple[str, str, str, str], Dict[str, object]]:
+    """
+    key = (symbol, report_date, period_type, item_code)
+    value = {
+        "value": ...,
+        "quality_flag": ...,
+        "source_doc": ...,
+        "source_section": ...,
+        "source_page": ...,
+        "note": ...,
+        "record_score": ...
+    }
+    """
+    lookup: Dict[Tuple[str, str, str, str], Dict[str, object]] = {}
+    if df_items.empty:
+        return lookup
+
+    best_df = build_best_item_records(df_items)
+    for _, row in best_df.iterrows():
+        key = (
+            str(row["symbol"]).strip(),
+            normalize_report_date_value(row["report_date"]),
+            normalize_period_type_value(row["period_type"]),
+            normalize_item_code_value(row["item_code"]),
+        )
+        lookup[key] = {
+            "value": row.get("value", np.nan),
+            "quality_flag": row.get("quality_flag", ""),
+            "source_doc": row.get("source_doc", ""),
+            "source_section": row.get("source_section", ""),
+            "source_page": row.get("source_page", np.nan),
+            "note": row.get("note", ""),
+            "record_score": row.get("record_score", 0.0),
+        }
+    return lookup
+
+
+def get_item_record(
+    lookup: Dict[Tuple[str, str, str, str], Dict[str, object]],
+    symbol: str,
+    report_date: str,
+    period_type: str,
+    item_code: str,
+) -> Optional[Dict[str, object]]:
+    key = (
+        str(symbol).strip(),
+        normalize_report_date_value(report_date),
+        normalize_period_type_value(period_type),
+        normalize_item_code_value(item_code),
+    )
+    return lookup.get(key)
+
+
+def consume_statement_items_into_feature_rows(
+    df_features: pd.DataFrame,
+    lookup: Dict[Tuple[str, str, str, str], Dict[str, object]],
+) -> pd.DataFrame:
+    if df_features.empty:
+        return df_features
+
+    df = df_features.copy()
+
+    for col in TARGET_ITEM_COLUMNS:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df["item_quality_score_sum"] = 0.0
+    df["item_quality_score_avg"] = np.nan
+    df["mapped_item_count"] = 0
+    df["mapped_item_nonnull_count"] = 0
+    df["mapped_item_codes"] = ""
+    df["item_source_docs"] = ""
+
+    consumed_doc_list: List[str] = []
+    consumed_code_list: List[str] = []
+    avg_scores: List[float] = []
+    quality_sums: List[float] = []
+    mapped_counts: List[int] = []
+    mapped_nonnull_counts: List[int] = []
+
+    for idx, row in df.iterrows():
+        symbol = row["symbol"]
+        report_date = row["report_date"]
+        period_type = row["period_type"]
+
+        used_codes: List[str] = []
+        used_docs: List[str] = []
+        score_values: List[float] = []
+        nonnull_count = 0
+        mapped_count = 0
+
+        for item_code in TARGET_ITEM_COLUMNS:
+            rec = get_item_record(lookup, symbol, report_date, period_type, item_code)
+            if rec is None:
+                continue
+
+            mapped_count += 1
+            used_codes.append(item_code)
+
+            value = rec.get("value", np.nan)
+            if pd.notna(value):
+                df.at[idx, item_code] = value
+                nonnull_count += 1
+
+            record_score = float(rec.get("record_score", 0.0) or 0.0)
+            score_values.append(record_score)
+
+            source_doc = str(rec.get("source_doc", "")).strip()
+            if source_doc:
+                used_docs.append(source_doc)
+
+        mapped_counts.append(mapped_count)
+        mapped_nonnull_counts.append(nonnull_count)
+        quality_sums.append(float(np.sum(score_values)) if score_values else 0.0)
+        avg_scores.append(float(np.mean(score_values)) if score_values else np.nan)
+        consumed_code_list.append("|".join(sorted(set(used_codes))))
+        consumed_doc_list.append("|".join(sorted(set(used_docs))))
+
+    df["mapped_item_count"] = mapped_counts
+    df["mapped_item_nonnull_count"] = mapped_nonnull_counts
+    df["item_quality_score_sum"] = quality_sums
+    df["item_quality_score_avg"] = avg_scores
+    df["mapped_item_codes"] = consumed_code_list
+    df["item_source_docs"] = consumed_doc_list
+
+    return df
+
+
 def derive_row(row: pd.Series) -> pd.Series:
-    revenue = row.get("revenue", np.nan)
-    total_assets = coalesce(row.get("total_assets"), row.get("total_assets_q", np.nan))
-    total_liabilities = coalesce(row.get("total_liabilities"), row.get("total_liabilities_q", np.nan))
-    total_equity = coalesce(row.get("total_equity"), row.get("total_equity_q", np.nan))
-    operating_cash_flow = coalesce(row.get("operating_cash_flow"), row.get("operating_cash_flow_q", np.nan))
+    revenue = coalesce(row.get("revenue", np.nan), row.get("revenue_q", np.nan))
+    total_assets = coalesce(row.get("total_assets", np.nan), row.get("total_assets_q", np.nan))
+    total_liabilities = coalesce(row.get("total_liabilities", np.nan), row.get("total_liabilities_q", np.nan))
+    total_equity = coalesce(row.get("total_equity", np.nan), row.get("total_equity_q", np.nan))
+    operating_cash_flow = coalesce(row.get("operating_cash_flow", np.nan), row.get("operating_cash_flow_q", np.nan))
 
     cash_and_cash_equivalents = row.get("cash_and_cash_equivalents", np.nan)
     restricted_cash = coalesce(row.get("restricted_cash", np.nan), 0.0)
@@ -201,7 +458,7 @@ def derive_row(row: pd.Series) -> pd.Series:
     integrated_supply_chain_revenue = row.get("integrated_supply_chain_revenue", np.nan)
     revenue_external_integrated_supply_chain = row.get("revenue_external_integrated_supply_chain", np.nan)
 
-    # 统一回填核心摘要字段（仅在摘要层缺失时回填）
+    row["revenue"] = revenue
     row["total_assets"] = total_assets
     row["total_liabilities"] = total_liabilities
     row["total_equity"] = total_equity
@@ -224,8 +481,6 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["receivables_ratio"] = pct(trade_receivables, revenue)
     row["contract_assets_ratio"] = pct(contract_assets, revenue)
     row["inventory_ratio"] = pct(inventories, revenue)
-
-    # V1：按收入口径
     row["payables_ratio"] = pct(trade_payables, revenue)
     row["supplier_finance_ratio"] = pct(supplier_finance_arrangements, trade_payables)
 
@@ -247,7 +502,6 @@ def derive_row(row: pd.Series) -> pd.Series:
     else:
         row["cash_conversion_quality_score"] = np.nan
 
-    # 收入结构
     revenue_external_preferred = coalesce(revenue_external, external_customer_revenue)
     revenue_integrated_preferred = coalesce(revenue_integrated_supply_chain, integrated_supply_chain_revenue)
 
@@ -266,17 +520,20 @@ def compute_yoy(df: pd.DataFrame, value_col: str, out_col: str) -> pd.DataFrame:
 
     df[out_col] = np.nan
 
-    for symbol, group_idx in df.groupby("symbol").groups.items():
+    for _, group_idx in df.groupby("symbol").groups.items():
         g = df.loc[group_idx].copy()
         g["report_date_dt"] = pd.to_datetime(g["report_date"], errors="coerce")
-        g = g.sort_values(["period_type", "report_date_dt"])
 
         yoy_values = {}
         for period_type, gp in g.groupby("period_type"):
             gp = gp.sort_values("report_date_dt")
             vals = gp[value_col]
             prev = vals.shift(1)
-            yoy = np.where((prev.notna()) & (prev != 0) & vals.notna(), (vals - prev) / prev * 100.0, np.nan)
+            yoy = np.where(
+                (prev.notna()) & (prev != 0) & vals.notna(),
+                (vals - prev) / prev * 100.0,
+                np.nan,
+            )
             for idx, v in zip(gp.index, yoy):
                 yoy_values[idx] = v
 
@@ -361,15 +618,15 @@ def add_network_expansion_tag(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df["network_expansion_tag"] = ""
-    for symbol, idxs in df.groupby("symbol").groups.items():
+    for _, idxs in df.groupby("symbol").groups.items():
         g = df.loc[idxs].copy()
         g["report_date_dt"] = pd.to_datetime(g["report_date"], errors="coerce")
-        g = g.sort_values(["period_type", "report_date_dt"])
 
-        for period_type, gp in g.groupby("period_type"):
+        for _, gp in g.groupby("period_type"):
             gp = gp.sort_values("report_date_dt")
             prev = gp["warehouse_count"].shift(1)
             cur = gp["warehouse_count"]
+
             for i in gp.index:
                 p = prev.loc[i]
                 c = cur.loc[i]
@@ -391,9 +648,14 @@ def add_network_expansion_tag(df: pd.DataFrame) -> pd.DataFrame:
 def build_feature_note(row: pd.Series) -> str:
     notes: List[str] = []
 
-    if row.get("quality_flag", "") == "REVIEW":
+    period_type = row.get("period_type", "")
+    quality_flag = row.get("quality_flag", "")
+
+    if quality_flag == "REVIEW":
         notes.append("存在口径或来源需复核")
-    if row.get("period_type", "") in {"quarter"} and (
+    if quality_flag == "RAW":
+        notes.append("核心字段到位率偏低")
+    if period_type == "quarter" and (
         pd.isna(row.get("current_assets", np.nan)) or pd.isna(row.get("current_liabilities", np.nan))
     ):
         notes.append("季度口径可能未披露完整资产负债表")
@@ -401,11 +663,19 @@ def build_feature_note(row: pd.Series) -> str:
         notes.append("自由现金流率为负")
     if pd.notna(row.get("receivables_over_12m_ratio", np.nan)) and row["receivables_over_12m_ratio"] >= 10:
         notes.append("长账龄应收占比较高")
+    if period_type == "annual" and int(row.get("mapped_item_nonnull_count", 0) or 0) < 10:
+        notes.append("annual 映射字段仍未完全打透")
 
     return "；".join(notes)
 
 
 def assign_row_quality_flag(row: pd.Series) -> str:
+    """
+    V2 逻辑：
+    1. 先看 annual 行关键字段到位率
+    2. 再看 revenue_external 与 external_customer_revenue 是否冲突
+    3. 再结合 item 质量均值
+    """
     review_needed = False
 
     revenue_external = row.get("revenue_external", np.nan)
@@ -419,15 +689,29 @@ def assign_row_quality_flag(row: pd.Series) -> str:
         row.get("total_assets", np.nan),
         row.get("total_liabilities", np.nan),
         row.get("trade_receivables", np.nan),
+        row.get("trade_payables", np.nan),
+        row.get("current_assets", np.nan),
+        row.get("current_liabilities", np.nan),
         row.get("free_cash_flow_margin", np.nan),
     ]
     available_count = sum(pd.notna(v) for v in core_fields)
+    period_type = row.get("period_type", "")
+    item_quality_avg = row.get("item_quality_score_avg", np.nan)
+    mapped_nonnull_count = int(row.get("mapped_item_nonnull_count", 0) or 0)
 
     if review_needed:
         return "REVIEW"
-    if available_count >= 4:
+
+    if period_type == "annual":
+        if available_count >= 7 and mapped_nonnull_count >= 12 and pd.notna(item_quality_avg) and item_quality_avg >= 120:
+            return "CONFIRMED"
+        if available_count >= 5 and mapped_nonnull_count >= 8:
+            return "PARTIAL"
+        return "RAW"
+
+    if available_count >= 6:
         return "CONFIRMED"
-    if available_count >= 2:
+    if available_count >= 3:
         return "PARTIAL"
     return "RAW"
 
@@ -521,6 +805,13 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "globalization_phase_tag",
         "network_expansion_tag",
         "feature_note",
+        # 映射元数据
+        "mapped_item_count",
+        "mapped_item_nonnull_count",
+        "item_quality_score_sum",
+        "item_quality_score_avg",
+        "mapped_item_codes",
+        "item_source_docs",
         # 元数据
         "data_version",
         "quality_flag",
@@ -535,22 +826,30 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def build_features(base_dir: Path) -> pd.DataFrame:
     quarterly = load_quarterly(base_dir)
     items = load_statement_items(base_dir)
-    items_pivot = pivot_statement_items(items)
+    item_lookup = build_item_lookup(items)
 
-    # 避免和透视表的同名字段冲突时丢信息
-    duplicate_cols = [c for c in ["total_assets", "total_liabilities", "total_equity", "operating_cash_flow"] if c in quarterly.columns]
-    quarterly = quarterly.rename(columns={c: f"{c}_q" for c in duplicate_cols})
+    if quarterly.empty:
+        df = pd.DataFrame(columns=PRIMARY_KEYS)
+    else:
+        df = quarterly.copy()
 
-    df = quarterly.merge(items_pivot, on=PRIMARY_KEYS, how="left")
+    # 避免摘要字段被后续 item 消费覆盖时丢失原值
+    duplicate_cols = [c for c in ["revenue", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow"] if c in df.columns]
+    if duplicate_cols:
+        df = df.rename(columns={c: f"{c}_q" for c in duplicate_cols})
 
-    # 恢复摘要字段目标列
-    for c in ["total_assets", "total_liabilities", "total_equity", "operating_cash_flow"]:
+    # 恢复目标列
+    for c in ["revenue", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow"]:
         if c not in df.columns:
             df[c] = np.nan
 
+    # 逐行消费 statement_items
+    df = consume_statement_items_into_feature_rows(df, item_lookup)
+
+    # 派生
     df = df.apply(derive_row, axis=1)
 
-    # 同比字段
+    # 同比
     df = compute_yoy(df, "external_isc_customer_count", "external_isc_customer_yoy")
     df = compute_yoy(df, "external_isc_arpc", "external_isc_arpc_yoy")
 
@@ -574,7 +873,9 @@ def build_features(base_dir: Path) -> pd.DataFrame:
 
     # 排序
     df["report_date_dt"] = pd.to_datetime(df["report_date"], errors="coerce")
-    df = df.sort_values(["symbol", "report_date_dt", "period_type"]).drop(columns=["report_date_dt"])
+    period_rank = {"annual": 1, "semiannual": 2, "quarter": 3}
+    df["period_rank"] = df["period_type"].map(period_rank).fillna(9)
+    df = df.sort_values(["symbol", "report_date_dt", "period_rank"]).drop(columns=["report_date_dt", "period_rank"])
 
     # 去重
     df = df.drop_duplicates(subset=PRIMARY_KEYS, keep="last")
@@ -624,19 +925,25 @@ def main():
     print("=" * 80)
 
     if len(df) > 0:
-        preview_cols = [c for c in [
-            "symbol",
-            "report_date",
-            "period_type",
-            "revenue",
-            "net_cash",
-            "working_capital",
-            "debt_to_asset_ratio",
-            "receivables_ratio",
-            "free_cash_flow_margin",
-            "quality_flag",
-        ] if c in df.columns]
-        print(df[preview_cols].tail(10).to_string(index=False))
+        preview_cols = [
+            c for c in [
+                "symbol",
+                "report_date",
+                "period_type",
+                "revenue",
+                "cash_and_cash_equivalents",
+                "trade_receivables",
+                "trade_payables",
+                "net_cash",
+                "working_capital",
+                "debt_to_asset_ratio",
+                "receivables_ratio",
+                "free_cash_flow_margin",
+                "mapped_item_nonnull_count",
+                "quality_flag",
+            ] if c in df.columns
+        ]
+        print(df[preview_cols].tail(12).to_string(index=False))
 
 
 if __name__ == "__main__":

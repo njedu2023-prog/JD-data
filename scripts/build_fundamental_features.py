@@ -15,7 +15,7 @@ build_fundamental_features.py
 4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V2.2 设计原则：
+V2.3 设计原则：
 - 当前主线第一优先：打透 2021–2025 annual 行映射
 - 不回退旧话题，不重复验证 workflow
 - 不再只依赖简单 pivot merge，而是显式做行级消费
@@ -24,6 +24,7 @@ V2.2 设计原则：
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
 - statement_items 金额字段统一标准化到 million RMB 后再进入 features
 - 修复 quality_flag 误判：不再把 external_customer_revenue 与 revenue_external 视为同口径冲突字段
+- 新增 annual 安全补齐：revenue_other_customers / free_cash_inflow / payables aging 单缺口
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V2.2"
+DATA_VERSION = "V2.3"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
@@ -164,6 +165,13 @@ NON_AMOUNT_ITEM_COLUMNS = {
     "external_isc_customer_count",
     "external_isc_arpc",
 }
+
+PAYABLES_AGING_COLS = [
+    "payables_within_3m",
+    "payables_3_to_6m",
+    "payables_6_to_12m",
+    "payables_over_12m",
+]
 
 
 def now_iso() -> str:
@@ -424,9 +432,6 @@ def build_best_item_records(df_items: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_item_lookup(df_items: pd.DataFrame) -> Dict[Tuple[str, str, str, str], Dict[str, object]]:
-    """
-    key = (symbol, report_date, period_type, item_code)
-    """
     lookup: Dict[Tuple[str, str, str, str], Dict[str, object]] = {}
     if df_items.empty:
         return lookup
@@ -545,12 +550,94 @@ def consume_statement_items_into_feature_rows(
     return df
 
 
+def derive_revenue_other_customers(row: pd.Series):
+    value = row.get("revenue_other_customers", np.nan)
+    if pd.notna(value):
+        return value, False
+
+    revenue = row.get("revenue", np.nan)
+    revenue_integrated_supply_chain = row.get("revenue_integrated_supply_chain", np.nan)
+
+    if pd.notna(revenue) and pd.notna(revenue_integrated_supply_chain):
+        diff = revenue - revenue_integrated_supply_chain
+        if diff >= 0:
+            return diff, True
+
+    return np.nan, False
+
+
+def derive_free_cash_inflow(row: pd.Series):
+    value = row.get("free_cash_inflow", np.nan)
+    if pd.notna(value):
+        return value, False
+
+    operating_cash_flow = row.get("operating_cash_flow", np.nan)
+    capex_net = row.get("capex_net", np.nan)
+
+    if pd.notna(operating_cash_flow) and pd.notna(capex_net):
+        return operating_cash_flow - capex_net, True
+
+    return np.nan, False
+
+
+def derive_single_missing_payables_aging(row: pd.Series) -> Tuple[pd.Series, List[str]]:
+    """
+    仅对 payables aging 做安全补齐：
+    若四个桶恰好缺一个，且 trade_payables 与其余三个桶都有值，则用差额补。
+    """
+    notes: List[str] = []
+
+    trade_payables = row.get("trade_payables", np.nan)
+    if pd.isna(trade_payables):
+        return row, notes
+
+    values = [row.get(col, np.nan) for col in PAYABLES_AGING_COLS]
+    missing_cols = [col for col, v in zip(PAYABLES_AGING_COLS, values) if pd.isna(v)]
+
+    if len(missing_cols) != 1:
+        return row, notes
+
+    present_sum = float(np.nansum([v for v in values if pd.notna(v)]))
+    missing_col = missing_cols[0]
+    derived_value = trade_payables - present_sum
+
+    if derived_value >= 0:
+        row[missing_col] = derived_value
+        notes.append(f"{missing_col}=derived_from_trade_payables")
+    return row, notes
+
+
 def derive_row(row: pd.Series) -> pd.Series:
+    derived_notes: List[str] = []
+
     revenue = coalesce(row.get("revenue", np.nan), row.get("revenue_q", np.nan))
     total_assets = coalesce(row.get("total_assets", np.nan), row.get("total_assets_q", np.nan))
     total_liabilities = coalesce(row.get("total_liabilities", np.nan), row.get("total_liabilities_q", np.nan))
     total_equity = coalesce(row.get("total_equity", np.nan), row.get("total_equity_q", np.nan))
     operating_cash_flow = coalesce(row.get("operating_cash_flow", np.nan), row.get("operating_cash_flow_q", np.nan))
+
+    row["revenue"] = revenue
+    row["total_assets"] = total_assets
+    row["total_liabilities"] = total_liabilities
+    row["total_equity"] = total_equity
+    row["operating_cash_flow"] = operating_cash_flow
+
+    # annual 安全补齐
+    if row.get("period_type", "") == "annual":
+        revenue_other_customers, derived_flag = derive_revenue_other_customers(row)
+        if pd.notna(revenue_other_customers):
+            row["revenue_other_customers"] = revenue_other_customers
+        if derived_flag:
+            derived_notes.append("revenue_other_customers=derived_from_revenue_minus_isc")
+
+        free_cash_inflow, derived_flag = derive_free_cash_inflow(row)
+        if pd.notna(free_cash_inflow):
+            row["free_cash_inflow"] = free_cash_inflow
+        if derived_flag:
+            derived_notes.append("free_cash_inflow=derived_from_ocf_minus_capex")
+
+        row, payables_notes = derive_single_missing_payables_aging(row)
+        derived_notes.extend(payables_notes)
 
     cash_and_cash_equivalents = row.get("cash_and_cash_equivalents", np.nan)
     restricted_cash = coalesce(row.get("restricted_cash", np.nan), 0.0)
@@ -578,12 +665,6 @@ def derive_row(row: pd.Series) -> pd.Series:
     revenue_integrated_supply_chain = row.get("revenue_integrated_supply_chain", np.nan)
     integrated_supply_chain_revenue = row.get("integrated_supply_chain_revenue", np.nan)
     revenue_external_integrated_supply_chain = row.get("revenue_external_integrated_supply_chain", np.nan)
-
-    row["revenue"] = revenue
-    row["total_assets"] = total_assets
-    row["total_liabilities"] = total_liabilities
-    row["total_equity"] = total_equity
-    row["operating_cash_flow"] = operating_cash_flow
 
     if pd.notna(cash_and_cash_equivalents) and pd.notna(borrowings):
         row["net_cash"] = cash_and_cash_equivalents + restricted_cash + term_deposits - borrowings
@@ -630,6 +711,7 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["integrated_supply_chain_revenue_ratio"] = pct(revenue_integrated_preferred, revenue)
     row["external_isc_revenue_ratio"] = pct(revenue_external_integrated_supply_chain, revenue)
 
+    row["_derived_field_notes"] = "|".join(derived_notes)
     return row
 
 
@@ -817,6 +899,7 @@ def annual_note_completeness_score(row: pd.Series) -> int:
         row.get("payables_6_to_12m", np.nan),
         row.get("payables_over_12m", np.nan),
         row.get("supplier_finance_arrangements", np.nan),
+        row.get("revenue_other_customers", np.nan),
     ]
     return int(sum(pd.notna(v) for v in note_fields))
 
@@ -881,15 +964,19 @@ def build_feature_note(row: pd.Series) -> str:
         note_score = annual_note_completeness_score(row)
         if core_score >= 9 and note_score < 3:
             notes.append("annual 主干字段已通，但附注字段覆盖仍偏薄")
-        elif core_score >= 9 and note_score < 6:
+        elif core_score >= 9 and note_score < 7:
             notes.append("annual 附注字段覆盖中等，仍可继续补齐")
+
+    derived_field_notes = str(row.get("_derived_field_notes", "") or "").strip()
+    if derived_field_notes:
+        notes.append(f"安全补齐:{derived_field_notes}")
 
     return "；".join(notes)
 
 
 def assign_row_quality_flag(row: pd.Series) -> str:
     """
-    V2.2 逻辑：
+    V2.3 逻辑：
     1. 若出现异常比例爆炸，直接 REVIEW
     2. 若出现真正的资产/收入对账冲突，REVIEW
     3. annual 行按覆盖率判 CONFIRMED / PARTIAL / RAW
@@ -1126,18 +1213,15 @@ def main():
                 "report_date",
                 "period_type",
                 "revenue",
-                "cash_and_cash_equivalents",
-                "trade_receivables",
-                "trade_payables",
-                "net_cash",
-                "working_capital",
-                "debt_to_asset_ratio",
-                "receivables_ratio",
-                "free_cash_flow_margin",
-                "external_revenue_ratio",
-                "jd_group_revenue_ratio",
+                "free_cash_inflow",
+                "revenue_other_customers",
+                "payables_within_3m",
+                "payables_3_to_6m",
+                "payables_6_to_12m",
+                "payables_over_12m",
                 "mapped_item_nonnull_count",
                 "quality_flag",
+                "feature_note",
             ] if c in df.columns
         ]
         print(df[preview_cols].tail(12).to_string(index=False))

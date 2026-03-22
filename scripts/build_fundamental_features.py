@@ -15,14 +15,14 @@ build_fundamental_features.py
 4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V2 设计原则：
+V2.1 设计原则：
 - 当前主线第一优先：打透 2021–2025 annual 行映射
 - 不回退旧话题，不重复验证 workflow
 - 不再只依赖简单 pivot merge，而是显式做行级消费
 - annual / semiannual / quarter 三类 period_type 统一归一
 - statement_items 若存在重复记录，按质量优先级择优
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
-- 金额统一默认为 RMB / million_rmb
+- 关键修复：statement_items 金额字段统一标准化到 million RMB 后再进入 features
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V2"
+DATA_VERSION = "V2.1"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
@@ -78,7 +78,7 @@ TARGET_ITEM_COLUMNS = [
     "payables_6_to_12m",
     "payables_over_12m",
     "supplier_finance_arrangements",
-    # 兼容可能直接入 item 层的摘要字段
+    # 兼容 item 层直接写入的摘要字段
     "total_assets",
     "total_liabilities",
     "total_equity",
@@ -121,6 +121,49 @@ QUALITY_SCORE_MAP = {
     "": 0,
 }
 
+AMOUNT_ITEM_COLUMNS = {
+    "cash_and_cash_equivalents",
+    "restricted_cash",
+    "term_deposits",
+    "trade_receivables",
+    "contract_assets",
+    "inventories",
+    "trade_payables",
+    "borrowings",
+    "lease_liabilities",
+    "current_assets",
+    "current_liabilities",
+    "investing_cash_flow",
+    "financing_cash_flow",
+    "free_cash_inflow",
+    "capex_net",
+    "revenue_jd_group",
+    "revenue_external",
+    "revenue_integrated_supply_chain",
+    "revenue_external_integrated_supply_chain",
+    "revenue_other_customers",
+    "receivables_within_3m",
+    "receivables_3_to_6m",
+    "receivables_6_to_12m",
+    "receivables_over_12m",
+    "receivables_loss_allowance",
+    "payables_within_3m",
+    "payables_3_to_6m",
+    "payables_6_to_12m",
+    "payables_over_12m",
+    "supplier_finance_arrangements",
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "operating_cash_flow",
+    "revenue",
+}
+
+NON_AMOUNT_ITEM_COLUMNS = {
+    "external_isc_customer_count",
+    "external_isc_arpc",
+}
+
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -149,11 +192,6 @@ def to_numeric_if_possible(df: pd.DataFrame, exclude: Optional[Iterable[str]] = 
         if df[col].dtype == object:
             df[col] = pd.to_numeric(df[col], errors="ignore")
     return df
-
-
-def first_notnull(series: pd.Series):
-    non_null = series.dropna()
-    return non_null.iloc[0] if len(non_null) > 0 else np.nan
 
 
 def normalize_report_date_value(value) -> str:
@@ -195,6 +233,90 @@ def normalize_keys(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def normalize_unit_text(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().lower()
+    text = text.replace(" ", "")
+    text = text.replace("’", "'")
+    text = text.replace("人民币", "rmb")
+    return text
+
+
+def is_amount_item(item_code: str) -> bool:
+    return item_code in AMOUNT_ITEM_COLUMNS
+
+
+def normalize_amount_to_million_rmb(value, unit, currency, item_code: str):
+    """
+    统一把金额类 item 转成 million RMB。
+    非金额类 item 原值保留。
+    """
+    if pd.isna(value):
+        return np.nan
+
+    if item_code in NON_AMOUNT_ITEM_COLUMNS:
+        return value
+
+    if not is_amount_item(item_code):
+        return value
+
+    unit_text = normalize_unit_text(unit)
+    currency_text = str(currency).strip().upper() if pd.notna(currency) else ""
+
+    # 最常见：RMB'000 / CNY'000 -> million RMB
+    if unit_text in {
+        "rmb'000",
+        "rmb000",
+        "cny'000",
+        "cny000",
+        "thousandrmb",
+        "thousandcny",
+        "rmbthousand",
+        "cnythousand",
+    }:
+        return value / 1000.0
+
+    # 已经是百万人民币
+    if unit_text in {
+        "rmbmillion",
+        "millionrmb",
+        "cnymillion",
+        "millioncny",
+        "rmbmn",
+        "cnymn",
+        "million",
+    }:
+        return value
+
+    # 十亿人民币 -> 转成百万人民币
+    if unit_text in {
+        "rmbbillion",
+        "billionrmb",
+        "cnybillion",
+        "billioncny",
+        "rmbbn",
+        "cnybn",
+        "billion",
+    }:
+        return value * 1000.0
+
+    # 客户均值之类不处理
+    if "customer" in unit_text:
+        return value
+
+    # customers 不处理
+    if "customer" in unit_text or "customers" in unit_text:
+        return value
+
+    # N/A 但字段是金额类，尽量按 CNY 默认 million 处理风险太大，不自动改
+    # 这里保守：原值返回
+    if currency_text in {"CNY", "RMB"} and unit_text == "":
+        return value
+
+    return value
+
+
 def load_quarterly(base_dir: Path) -> pd.DataFrame:
     path = base_dir / QUARTERLY_FILE
     df = safe_read_csv(path)
@@ -217,6 +339,8 @@ def load_statement_items(base_dir: Path) -> pd.DataFrame:
         "statement_type",
         "item_code",
         "value",
+        "unit",
+        "currency",
         "quality_flag",
         "source_doc",
         "source_page",
@@ -231,7 +355,19 @@ def load_statement_items(base_dir: Path) -> pd.DataFrame:
     df["source_doc"] = df["source_doc"].fillna("").astype(str).str.strip()
     df["source_section"] = df["source_section"].fillna("").astype(str).str.strip()
     df["note"] = df["note"].fillna("").astype(str).str.strip()
+    df["unit"] = df["unit"].fillna("").astype(str).str.strip()
+    df["currency"] = df["currency"].fillna("").astype(str).str.strip().str.upper()
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
+    df["normalized_value"] = df.apply(
+        lambda row: normalize_amount_to_million_rmb(
+            value=row.get("value", np.nan),
+            unit=row.get("unit", ""),
+            currency=row.get("currency", ""),
+            item_code=row.get("item_code", ""),
+        ),
+        axis=1,
+    )
     return df
 
 
@@ -251,14 +387,14 @@ def coalesce(*values):
 def score_item_record(row: pd.Series) -> float:
     """
     statement_items 存在重复时择优逻辑：
-    1. value 非空优先
+    1. normalized_value 非空优先
     2. quality_flag 高优先
     3. source_doc / source_section 有追溯优先
     4. note 中若出现 rounded / narrative / estimated 等，降权
     """
     score = 0.0
 
-    if pd.notna(row.get("value", np.nan)):
+    if pd.notna(row.get("normalized_value", np.nan)):
         score += 100.0
 
     qf = str(row.get("quality_flag", "")).upper().strip()
@@ -299,15 +435,6 @@ def build_best_item_records(df_items: pd.DataFrame) -> pd.DataFrame:
 def build_item_lookup(df_items: pd.DataFrame) -> Dict[Tuple[str, str, str, str], Dict[str, object]]:
     """
     key = (symbol, report_date, period_type, item_code)
-    value = {
-        "value": ...,
-        "quality_flag": ...,
-        "source_doc": ...,
-        "source_section": ...,
-        "source_page": ...,
-        "note": ...,
-        "record_score": ...
-    }
     """
     lookup: Dict[Tuple[str, str, str, str], Dict[str, object]] = {}
     if df_items.empty:
@@ -322,7 +449,10 @@ def build_item_lookup(df_items: pd.DataFrame) -> Dict[Tuple[str, str, str, str],
             normalize_item_code_value(row["item_code"]),
         )
         lookup[key] = {
-            "value": row.get("value", np.nan),
+            "raw_value": row.get("value", np.nan),
+            "value": row.get("normalized_value", np.nan),
+            "unit": row.get("unit", ""),
+            "currency": row.get("currency", ""),
             "quality_flag": row.get("quality_flag", ""),
             "source_doc": row.get("source_doc", ""),
             "source_section": row.get("source_section", ""),
@@ -464,7 +594,6 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["total_equity"] = total_equity
     row["operating_cash_flow"] = operating_cash_flow
 
-    # 派生
     if pd.notna(cash_and_cash_equivalents) and pd.notna(borrowings):
         row["net_cash"] = cash_and_cash_equivalents + restricted_cash + term_deposits - borrowings
     else:
@@ -645,6 +774,27 @@ def add_network_expansion_tag(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def has_implausible_ratio(row: pd.Series) -> bool:
+    suspicious_cols = [
+        "receivables_ratio",
+        "contract_assets_ratio",
+        "inventory_ratio",
+        "payables_ratio",
+        "free_cash_flow_margin",
+        "capex_intensity",
+        "operating_cash_flow_margin",
+        "external_revenue_ratio",
+        "jd_group_revenue_ratio",
+        "integrated_supply_chain_revenue_ratio",
+        "external_isc_revenue_ratio",
+    ]
+    for col in suspicious_cols:
+        v = row.get(col, np.nan)
+        if pd.notna(v) and abs(v) > 1000:
+            return True
+    return False
+
+
 def build_feature_note(row: pd.Series) -> str:
     notes: List[str] = []
 
@@ -665,23 +815,30 @@ def build_feature_note(row: pd.Series) -> str:
         notes.append("长账龄应收占比较高")
     if period_type == "annual" and int(row.get("mapped_item_nonnull_count", 0) or 0) < 10:
         notes.append("annual 映射字段仍未完全打透")
+    if has_implausible_ratio(row):
+        notes.append("存在异常比例值，需复核单位或口径")
 
     return "；".join(notes)
 
 
 def assign_row_quality_flag(row: pd.Series) -> str:
     """
-    V2 逻辑：
-    1. 先看 annual 行关键字段到位率
-    2. 再看 revenue_external 与 external_customer_revenue 是否冲突
-    3. 再结合 item 质量均值
+    V2.1 逻辑：
+    1. annual 行先看关键字段到位率
+    2. 对 revenue_external vs external_customer_revenue 用相对容差，不再动不动 REVIEW
+    3. 若出现异常比例爆炸，直接 REVIEW
     """
+    if has_implausible_ratio(row):
+        return "REVIEW"
+
     review_needed = False
 
     revenue_external = row.get("revenue_external", np.nan)
     external_customer_revenue = row.get("external_customer_revenue", np.nan)
     if pd.notna(revenue_external) and pd.notna(external_customer_revenue):
-        if abs(revenue_external - external_customer_revenue) > 1e-6:
+        base = max(abs(revenue_external), abs(external_customer_revenue), 1.0)
+        rel_diff = abs(revenue_external - external_customer_revenue) / base
+        if rel_diff > 0.05:
             review_needed = True
 
     core_fields = [
@@ -703,7 +860,7 @@ def assign_row_quality_flag(row: pd.Series) -> str:
         return "REVIEW"
 
     if period_type == "annual":
-        if available_count >= 7 and mapped_nonnull_count >= 12 and pd.notna(item_quality_avg) and item_quality_avg >= 120:
+        if available_count >= 7 and mapped_nonnull_count >= 12 and pd.notna(item_quality_avg) and item_quality_avg >= 100:
             return "CONFIRMED"
         if available_count >= 5 and mapped_nonnull_count >= 8:
             return "PARTIAL"
@@ -718,11 +875,9 @@ def assign_row_quality_flag(row: pd.Series) -> str:
 
 def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     ordered_cols = [
-        # 主键
         "symbol",
         "report_date",
         "period_type",
-        # 直接保留字段
         "revenue",
         "gross_profit",
         "gross_margin",
@@ -739,7 +894,6 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "warehouse_gfa",
         "overseas_warehouse_area",
         "employee_count",
-        # 明细层补充字段
         "cash_and_cash_equivalents",
         "restricted_cash",
         "term_deposits",
@@ -772,7 +926,6 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "payables_6_to_12m",
         "payables_over_12m",
         "supplier_finance_arrangements",
-        # 派生字段
         "net_cash",
         "working_capital",
         "debt_to_asset_ratio",
@@ -796,7 +949,6 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "external_isc_revenue_ratio",
         "external_isc_customer_yoy",
         "external_isc_arpc_yoy",
-        # 标签字段
         "working_capital_pressure_tag",
         "receivables_quality_tag",
         "supplier_finance_usage_tag",
@@ -805,14 +957,12 @@ def finalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "globalization_phase_tag",
         "network_expansion_tag",
         "feature_note",
-        # 映射元数据
         "mapped_item_count",
         "mapped_item_nonnull_count",
         "item_quality_score_sum",
         "item_quality_score_avg",
         "mapped_item_codes",
         "item_source_docs",
-        # 元数据
         "data_version",
         "quality_flag",
         "source_summary",
@@ -833,27 +983,23 @@ def build_features(base_dir: Path) -> pd.DataFrame:
     else:
         df = quarterly.copy()
 
-    # 避免摘要字段被后续 item 消费覆盖时丢失原值
-    duplicate_cols = [c for c in ["revenue", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow"] if c in df.columns]
+    duplicate_cols = [
+        c for c in ["revenue", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow"]
+        if c in df.columns
+    ]
     if duplicate_cols:
         df = df.rename(columns={c: f"{c}_q" for c in duplicate_cols})
 
-    # 恢复目标列
     for c in ["revenue", "total_assets", "total_liabilities", "total_equity", "operating_cash_flow"]:
         if c not in df.columns:
             df[c] = np.nan
 
-    # 逐行消费 statement_items
     df = consume_statement_items_into_feature_rows(df, item_lookup)
-
-    # 派生
     df = df.apply(derive_row, axis=1)
 
-    # 同比
     df = compute_yoy(df, "external_isc_customer_count", "external_isc_customer_yoy")
     df = compute_yoy(df, "external_isc_arpc", "external_isc_arpc_yoy")
 
-    # 标签
     df["working_capital_pressure_tag"] = df.apply(label_working_capital_pressure, axis=1)
     df["receivables_quality_tag"] = df.apply(label_receivables_quality, axis=1)
     df["supplier_finance_usage_tag"] = df.apply(label_supplier_finance_usage, axis=1)
@@ -862,25 +1008,18 @@ def build_features(base_dir: Path) -> pd.DataFrame:
     df["globalization_phase_tag"] = df.apply(label_globalization_phase, axis=1)
     df = add_network_expansion_tag(df)
 
-    # 元数据
     df["data_version"] = DATA_VERSION
     df["source_summary"] = "fundamental_quarterly+fundamental_statement_items"
     df["updated_at"] = now_iso()
 
-    # 行级质量标记和说明
     df["quality_flag"] = df.apply(assign_row_quality_flag, axis=1)
     df["feature_note"] = df.apply(build_feature_note, axis=1)
 
-    # 排序
     df["report_date_dt"] = pd.to_datetime(df["report_date"], errors="coerce")
     period_rank = {"annual": 1, "semiannual": 2, "quarter": 3}
     df["period_rank"] = df["period_type"].map(period_rank).fillna(9)
     df = df.sort_values(["symbol", "report_date_dt", "period_rank"]).drop(columns=["report_date_dt", "period_rank"])
-
-    # 去重
     df = df.drop_duplicates(subset=PRIMARY_KEYS, keep="last")
-
-    # 输出列顺序
     df = finalize_columns(df)
     return df
 
@@ -893,16 +1032,8 @@ def save_features(df: pd.DataFrame, base_dir: Path) -> Path:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="构建下游可消费的企业基本面特征表 fundamental_features.csv")
-    parser.add_argument(
-        "--symbol",
-        default=DEFAULT_SYMBOL,
-        help=f"股票代码目录，默认 {DEFAULT_SYMBOL}",
-    )
-    parser.add_argument(
-        "--root",
-        default=".",
-        help="仓库根目录，默认当前目录",
-    )
+    parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help=f"股票代码目录，默认 {DEFAULT_SYMBOL}")
+    parser.add_argument("--root", default=".", help="仓库根目录，默认当前目录")
     return parser.parse_args()
 
 
@@ -939,6 +1070,8 @@ def main():
                 "debt_to_asset_ratio",
                 "receivables_ratio",
                 "free_cash_flow_margin",
+                "external_revenue_ratio",
+                "jd_group_revenue_ratio",
                 "mapped_item_nonnull_count",
                 "quality_flag",
             ] if c in df.columns

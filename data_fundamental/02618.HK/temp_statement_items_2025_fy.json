@@ -16,7 +16,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -35,7 +35,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -54,7 +54,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -68,12 +68,31 @@
     "unit": "RMB'000",
     "currency": "CNY",
     "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "39,40",
+    "source_section": "Trade receivables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Net carrying amount after allowance for credit losses.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "balance_sheet",
+    "item_code": "contract_assets",
+    "item_name_cn": "合同资产",
+    "item_name_en": "Contract assets",
+    "value": 297713,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
     "source_page": "34",
     "source_section": "Consolidated Balance Sheet - Current Assets",
     "is_derived": false,
     "quality_flag": "reported",
-    "note": "Net carrying amount after allowance for credit losses.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "note": "Directly reported contract assets at year end.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -92,7 +111,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -106,12 +125,12 @@
     "unit": "RMB'000",
     "currency": "CNY",
     "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
-    "source_page": "35",
-    "source_section": "Consolidated Balance Sheet - Current Liabilities",
-    "is_derived": false,
-    "quality_flag": "reported",
-    "note": "Gross trade payables including supplier finance arrangements amount disclosed in note.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "source_page": "40,41",
+    "source_section": "Trade payables / Aging analysis of trade payables",
+    "is_derived": true,
+    "quality_flag": "derived_sum",
+    "note": "Repository-consistent total payables basis: trade payables 10,549,144 plus trade payables under supplier finance arrangements 114,322.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -130,7 +149,7 @@
     "is_derived": true,
     "quality_flag": "derived_sum",
     "note": "Derived as non-current borrowings 3,866,590 plus current borrowings 541,385.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -149,7 +168,7 @@
     "is_derived": true,
     "quality_flag": "derived_sum",
     "note": "Derived as non-current lease liabilities 10,684,271 plus current lease liabilities 7,354,486.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -168,7 +187,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -187,7 +206,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -206,7 +225,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -225,7 +244,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -244,7 +263,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated balance sheet.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -263,7 +282,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated cash flow statement.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -282,7 +301,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated cash flow statement.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -301,7 +320,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in consolidated cash flow statement.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -320,7 +339,7 @@
     "is_derived": false,
     "quality_flag": "rounded_narrative",
     "note": "Narrative disclosure states free cash inflow of RMB4.2 billion; staged as 4,200,000 in RMB'000.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -339,7 +358,7 @@
     "is_derived": false,
     "quality_flag": "rounded_narrative",
     "note": "Narrative disclosure states capital expenditures net of related proceeds from disposals of RMB6.3 billion; staged as 6,300,000 in RMB'000.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -358,7 +377,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in revenue breakdown table.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -377,7 +396,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly reported in revenue breakdown table.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -396,7 +415,7 @@
     "is_derived": false,
     "quality_flag": "rounded_narrative",
     "note": "Narrative disclosure states RMB116.2 billion; staged as 116,200,000 in RMB'000.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -415,7 +434,7 @@
     "is_derived": false,
     "quality_flag": "rounded_narrative",
     "note": "Narrative disclosure states RMB35.9 billion; staged as 35,900,000 in RMB'000.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -434,7 +453,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly disclosed customer count for the year ended December 31, 2025.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -453,7 +472,64 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Directly disclosed ARPC for the year ended December 31, 2025.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "receivables_within_3m",
+    "item_name_cn": "应收账款账龄3个月以内",
+    "item_name_en": "Trade receivables within 3 months",
+    "value": 19835999,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "40",
+    "source_section": "Aging Analysis of Trade Receivables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Gross aging bucket before allowance for credit losses.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "receivables_3_to_6m",
+    "item_name_cn": "应收账款账龄3至6个月",
+    "item_name_en": "Trade receivables from 3 to 6 months",
+    "value": 204138,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "40",
+    "source_section": "Aging Analysis of Trade Receivables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Gross aging bucket before allowance for credit losses.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "receivables_6_to_12m",
+    "item_name_cn": "应收账款账龄6至12个月",
+    "item_name_en": "Trade receivables from 6 to 12 months",
+    "value": 61275,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "40",
+    "source_section": "Aging Analysis of Trade Receivables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Gross aging bucket before allowance for credit losses.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -472,7 +548,83 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Gross aging bucket before allowance for credit losses.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "receivables_loss_allowance",
+    "item_name_cn": "应收账款减值准备",
+    "item_name_en": "Allowance for credit losses of trade receivables",
+    "value": 361651,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "39,40",
+    "source_section": "Trade receivables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Allowance for credit losses deducted from gross trade receivables.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "payables_within_3m",
+    "item_name_cn": "应付账款账龄3个月以内",
+    "item_name_en": "Trade payables within 3 months",
+    "value": 10188339,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "41",
+    "source_section": "Aging Analysis of Trade Payables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Aging bucket within 3 months in trade payables aging analysis.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "payables_3_to_6m",
+    "item_name_cn": "应付账款账龄3至6个月",
+    "item_name_en": "Trade payables from 3 to 6 months",
+    "value": 133440,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "41",
+    "source_section": "Aging Analysis of Trade Payables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Aging bucket from 3 to 6 months in trade payables aging analysis.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
+  },
+  {
+    "symbol": "02618.HK",
+    "report_date": "2025-12-31",
+    "period_type": "FY",
+    "statement_type": "working_capital_note",
+    "item_code": "payables_6_to_12m",
+    "item_name_cn": "应付账款账龄6至12个月",
+    "item_name_en": "Trade payables from 6 to 12 months",
+    "value": 97115,
+    "unit": "RMB'000",
+    "currency": "CNY",
+    "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
+    "source_page": "41",
+    "source_section": "Aging Analysis of Trade Payables",
+    "is_derived": false,
+    "quality_flag": "reported",
+    "note": "Aging bucket from 6 to 12 months in trade payables aging analysis.",
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -491,7 +643,7 @@
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Aging bucket over 12 months in trade payables aging analysis.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   },
   {
     "symbol": "02618.HK",
@@ -506,10 +658,10 @@
     "currency": "CNY",
     "source_doc": "https://www.hkexnews.hk/listedco/listconews/sehk/2026/0305/2026030500918.pdf",
     "source_page": "40",
-    "source_section": "Supplier Finance Arrangements",
+    "source_section": "Trade payables under supplier finance arrangements",
     "is_derived": false,
     "quality_flag": "reported",
     "note": "Amount of trade payables under supplier finance arrangements already received by suppliers from finance providers.",
-    "updated_at": "2026-03-21T00:00:00+08:00"
+    "updated_at": "2026-03-23T00:00:00+08:00"
   }
 ]

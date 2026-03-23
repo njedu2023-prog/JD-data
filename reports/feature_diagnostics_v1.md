@@ -1,5 +1,5 @@
 ## feature diagnostics v1
-built_at: 2026-03-23T17:22:00Z
+built_at: 2026-03-23T21:02:30Z
 
 dataset rows: 1184
 feature count: 99

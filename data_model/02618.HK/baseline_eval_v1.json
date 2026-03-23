@@ -1,0 +1,12 @@
+{
+  "report_version": "baseline_eval_v1",
+  "built_at": "2026-03-23T10:33:18Z",
+  "regression": {
+    "target": "y_ret_1d",
+    "random_walk": {
+      "MAE": 0.022590071404149627,
+      "RMSE": 0.03167358516646876,
+      "IC": 0.0
+    }
+  }
+}

@@ -1,0 +1,29 @@
+name: Train baseline models
+on:
+  workflow_dispatch:
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install pandas numpy scikit-learn scipy
+      - name: Run baseline training
+        run: python scripts/train_baseline_models.py
+      - name: Commit baseline report
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add data_model/02618.HK/baseline_eval_v1.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update baseline_eval_v1 report"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -15,14 +15,18 @@ build_model_features.py
 4. 输出正式模型消费表：
    data_model/02618.HK/model_features.csv
 
-V2.2 核心修复：
-1. 修复原文件多处字符串/注释损坏导致的语法错误
-2. 修复 data_version 缺失时的不完整赋值
-3. 修复 row.get(..., ) 等损坏写法
-4. 保持“以个股实际交易日为主轴”的历史全覆盖逻辑
-5. 按当前主线完成首轮修剪：
+V2.3 核心修复：
+1. 保持“以个股实际交易日为主轴”的历史全覆盖逻辑
+2. 保持已完成的首轮修剪：
    - 移除 ret_1519_* 与 alpha_vs_1519_5d
    - 不再加载 1519.HK 代理层
+3. 按当前主线继续做“特征修剪收口”：
+   - 移除高缺失且弱信号特征：
+     external_isc_customer_yoy
+     external_isc_arpc_yoy
+     receivables_loss_allowance_ratio
+     contract_assets
+     contract_assets_ratio
 
 说明：
 - 当前不负责标签生成
@@ -69,7 +73,7 @@ PROXY_FILES = {
     "2057": REPO_ROOT / "data_clean" / "2057.HK" / "daily_clean.csv",
 }
 
-BUILD_VERSION = "model_features_v2.2"
+BUILD_VERSION = "model_features_v2.3"
 
 # 数值基本面字段
 FUNDAMENTAL_NUMERIC_COLUMNS = [
@@ -94,11 +98,9 @@ FUNDAMENTAL_NUMERIC_COLUMNS = [
     "debt_to_asset_ratio",
     "lease_burden_ratio",
     "trade_receivables",
-    "contract_assets",
     "inventories",
     "trade_payables",
     "receivables_ratio",
-    "contract_assets_ratio",
     "inventory_ratio",
     "payables_ratio",
     "supplier_finance_arrangements",
@@ -106,7 +108,6 @@ FUNDAMENTAL_NUMERIC_COLUMNS = [
     "receivables_over_6m_ratio",
     "receivables_over_12m_ratio",
     "payables_over_12m_ratio",
-    "receivables_loss_allowance_ratio",
     "free_cash_flow_margin",
     "capex_intensity",
     "operating_cash_flow_margin",
@@ -123,8 +124,6 @@ FUNDAMENTAL_NUMERIC_COLUMNS = [
     "warehouse_count",
     "external_isc_customer_count",
     "external_isc_arpc",
-    "external_isc_customer_yoy",
-    "external_isc_arpc_yoy",
 ]
 
 FUNDAMENTAL_META_COLUMNS = [

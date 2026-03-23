@@ -32,6 +32,13 @@ labels_path = REPO_ROOT / "data_model" / SYMBOL / "model_labels.csv"
 dataset_path = REPO_ROOT / "data_model" / SYMBOL / "model_dataset.csv"
 
 
+def find_first_existing_column(df: pd.DataFrame, candidates: list[str]) -> str:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    raise ValueError(f"Missing required columns {candidates}")
+
+
 def standardize_date(df: pd.DataFrame, col: str) -> pd.DataFrame:
     df = df.copy()
     df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
@@ -67,7 +74,9 @@ def build_labels(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_dataset(feat_df: pd.DataFrame, labels_df: pd.DataFrame) -> pd.DataFrame:
     feat_df = feat_df.copy()
-    feat_df["asof_date"] = pd.to_datetime(feat_df["asof_date"], errors="coerce").dt.normalize()
+    feat_df["asof_date"] = pd.to_datetime(
+        feat_df["asof_date"], errors="coerce"
+    ).dt.normalize()
 
     out = feat_df.merge(labels_df, on="asof_date", how="left")
     out = out.sort_values(["symbol", "asof_date"]).reset_index(drop=True)
@@ -81,7 +90,14 @@ def main() -> None:
     if "symbol" in daily_df.columns:
         daily_df = daily_df[daily_df["symbol"] == SYMBOL].copy()
 
-    daily_df = standardize_date(daily_df, "date")
+    date_col = find_first_existing_column(daily_df, ["date", "trade_date"])
+    daily_df = standardize_date(daily_df, date_col)
+    if date_col != "date":
+        daily_df = daily_df.rename(columns={date_col: "date"})
+
+    close_col = find_first_existing_column(daily_df, ["close", "adj_close", "Close"])
+    if close_col != "close":
+        daily_df = daily_df.rename(columns={close_col: "close"})
 
     labels_df = build_labels(daily_df)
     labels_path.parent.mkdir(parents=True, exist_ok=True)

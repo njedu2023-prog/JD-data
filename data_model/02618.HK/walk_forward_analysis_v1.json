@@ -1,0 +1,55 @@
+{
+  "analysis_version": "walk_forward_analysis_v1",
+  "built_at": "2026-03-23T11:48:56Z",
+  "meta": {
+    "folds": 0,
+    "weights": []
+  },
+  "regression": {
+    "weighted": {
+      "mae": {
+        "ridge": null,
+        "random_walk": null
+      },
+      "rmse": {
+        "ridge": null,
+        "random_walk": null
+      },
+      "ic": {
+        "ridge": null,
+        "random_walk": null
+      }
+    },
+    "pvalues": {
+      "mae": null,
+      "rmse": null,
+      "ic": null
+    }
+  },
+  "classification": {
+    "weighted": {
+      "accuracy": {
+        "logistic": null,
+        "majority": null
+      },
+      "f1": {
+        "logistic": null,
+        "majority": null
+      },
+      "roc_auc": {
+        "logistic": null,
+        "majority": null
+      },
+      "brier": {
+        "logistic": null,
+        "majority": null
+      }
+    },
+    "pvalues": {
+      "accuracy": null,
+      "f1": null,
+      "roc_auc": null,
+      "brier": null
+    }
+  }
+}

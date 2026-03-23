@@ -8,21 +8,18 @@ build_model_features.py
    - 个股 daily_clean.csv
    - 指数 clean.csv
    - 代理层 clean.csv
-   - 港股交易日历
-2. 以港股交易日为 asof_date 主轴，构建 model_features.csv
+   - 港股交易日历（仅辅助校验，不再作为唯一主轴）
+2. 以个股实际可用交易日为 asof_date 主轴，构建 model_features.csv
 3. 严格采用 as-of 对齐：
    - 每个 asof_date 只能吃到该日及以前可见的基本面锚点
 4. 输出正式模型消费表：
    data_model/02618.HK/model_features.csv
 
-V2 核心升级：
-1. 基本面锚点选择从“最近优先”升级为：
-   - 质量优先
-   - 周期优先（annual > semiannual > quarter）
-   - 时间优先（在同质量同周期下取最近）
-2. 增加关键字段闸门
-3. 降低低质量 quarter 对样本母表的污染
-4. row_quality_flag 不再只看总缺失率
+V2.1 核心修复：
+1. 不再让不完整的 hk_trade_calendar.csv 截断历史样本
+2. 改为以个股 daily_clean.csv 的实际交易日作为正式母表主轴
+3. calendar 仅用于覆盖率诊断，不再作为硬过滤条件
+4. 保持基本面锚点选择、质量闸门、最终字段结构不变
 
 说明：
 - 当前不负责标签生成
@@ -35,7 +32,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -69,7 +66,7 @@ PROXY_FILES = {
     "1519": REPO_ROOT / "data_clean" / "1519.HK" / "daily_clean.csv",
 }
 
-BUILD_VERSION = "model_features_v2.0"
+BUILD_VERSION = "model_features_v2.1"
 
 # 数值基本面字段
 FUNDAMENTAL_NUMERIC_COLUMNS = [
@@ -333,7 +330,6 @@ def calc_anchor_strength_score(row: pd.Series) -> float:
     critical_nonnull = count_nonnull_fields(row, CRITICAL_FUNDAMENTAL_FIELDS)
     anchor_strength = count_nonnull_fields(row, ANCHOR_STRENGTH_FIELDS)
 
-    # 这里故意把质量和周期权重拉高，保证不会让“最近的烂 quarter”轻易赢
     score = (
         q_rank * 1000
         + p_rank * 100
@@ -352,7 +348,6 @@ def derive_row_quality_flag(
     f = str(fundamental_quality_flag).upper()
     p = str(fundamental_anchor_period_type).lower()
 
-    # 严格 PASS
     if (
         f == "CONFIRMED"
         and critical_nonnull_ratio >= 0.90
@@ -360,7 +355,6 @@ def derive_row_quality_flag(
     ):
         return "PASS"
 
-    # PARTIAL：允许 semiannual / quarter，但必须不是太残
     if (
         f in {"CONFIRMED", "PARTIAL"}
         and critical_nonnull_ratio >= 0.60
@@ -368,7 +362,6 @@ def derive_row_quality_flag(
     ):
         return "PARTIAL"
 
-    # 低质量 quarter 或关键字段太残，直接 REVIEW
     if p == "quarter" and (f == "RAW" or critical_nonnull_ratio < 0.60):
         return "REVIEW"
 
@@ -379,8 +372,10 @@ def derive_row_quality_flag(
 # 数据加载
 # =========================
 
-def load_calendar() -> pd.DataFrame:
-    df = read_csv_safe(CALENDAR_FILE, required=True)
+def load_calendar(required: bool = False) -> pd.DataFrame:
+    df = read_csv_safe(CALENDAR_FILE, required=required)
+    if df.empty:
+        return df
 
     date_col = find_first_existing_column(df, ["trade_date", "date", "calendar_date"])
     if date_col is None:
@@ -419,17 +414,14 @@ def load_fundamental(symbol: str) -> pd.DataFrame:
 
     df = df[keep_cols].copy()
 
-    # 基本评级
     df["quality_rank"] = df["quality_flag"].map(quality_rank)
     df["period_rank"] = df["period_type"].map(period_rank)
 
-    # 关键字段完整度
     df["critical_nonnull_count"] = df.apply(
         lambda r: count_nonnull_fields(r, CRITICAL_FUNDAMENTAL_FIELDS), axis=1
     )
     df["critical_nonnull_ratio"] = df["critical_nonnull_count"] / len(CRITICAL_FUNDAMENTAL_FIELDS)
 
-    # 综合分
     df["anchor_score"] = df.apply(calc_anchor_strength_score, axis=1)
 
     df = df.sort_values(
@@ -463,26 +455,61 @@ def load_daily_like(path: Path, symbol: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
+def resolve_asof_dates(
+    stock_df: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> pd.DataFrame:
+    """
+    正式母表主轴改为：个股实际可用交易日。
+    这样不会再被不完整的 hk_trade_calendar.csv 截断历史。
+    """
+    if stock_df.empty:
+        raise ValueError("个股行情为空，无法生成样本")
+
+    asof_df = stock_df[["date"]].drop_duplicates().sort_values("date").reset_index(drop=True)
+
+    if start_date:
+        start_ts = pd.to_datetime(start_date).normalize()
+        asof_df = asof_df[asof_df["date"] >= start_ts].copy()
+
+    if end_date:
+        end_ts = pd.to_datetime(end_date).normalize()
+        asof_df = asof_df[asof_df["date"] <= end_ts].copy()
+
+    if asof_df.empty:
+        raise ValueError("过滤日期后，个股可用交易日为空")
+
+    return asof_df.rename(columns={"date": "asof_date"}).reset_index(drop=True)
+
+
+def print_calendar_coverage_diagnostics(asof_df: pd.DataFrame) -> None:
+    calendar_df = load_calendar(required=False)
+    if calendar_df.empty:
+        print("[WARN] hk_trade_calendar.csv 缺失或为空：已直接使用个股交易日作为主轴")
+        return
+
+    calendar_dates = set(calendar_df["date"].tolist())
+    asof_dates = set(asof_df["asof_date"].tolist())
+    missing_in_calendar = sorted(asof_dates - calendar_dates)
+
+    if not missing_in_calendar:
+        print("[OK] calendar 覆盖了全部个股交易日")
+        return
+
+    missing_years = sorted({d.year for d in missing_in_calendar})
+    print(
+        "[WARN] hk_trade_calendar.csv 未覆盖全部个股交易日，"
+        f"缺失 {len(missing_in_calendar)} 个日期，涉及年份: {missing_years}；"
+        "已改为直接使用个股交易日主轴，避免历史被截断"
+    )
+
+
 # =========================
 # 锚点选择 V2
 # =========================
 
-def select_best_fundamental_anchor(
-    candidates: pd.DataFrame,
-) -> Optional[pd.Series]:
-    """
-    选择规则：
-    1. 先限定 asof_date 之前可见的全部记录
-    2. 在候选里按：
-       - anchor_score 高
-       - quality_rank 高
-       - period_rank 高
-       - report_date 近
-       排序
-    3. 返回第一条
-
-    这样 annual / 高质量 semiannual 会压过低质量 quarter。
-    """
+def select_best_fundamental_anchor(candidates: pd.DataFrame) -> Optional[pd.Series]:
     if candidates.empty:
         return None
 
@@ -494,15 +521,14 @@ def select_best_fundamental_anchor(
     return ranked.iloc[0]
 
 
-def build_fundamental_anchor_map(calendar_df: pd.DataFrame, fundamental_df: pd.DataFrame) -> pd.DataFrame:
+def build_fundamental_anchor_map(asof_df: pd.DataFrame, fundamental_df: pd.DataFrame) -> pd.DataFrame:
     if fundamental_df.empty:
         raise ValueError("fundamental_features.csv 为空，无法构建 model_features")
 
     rows = []
-
     f = fundamental_df.copy().sort_values("report_date").reset_index(drop=True)
 
-    for asof_date in calendar_df["date"].tolist():
+    for asof_date in asof_df["asof_date"].tolist():
         candidates = f[f["report_date"] <= asof_date].copy()
 
         best = select_best_fundamental_anchor(candidates)
@@ -583,48 +609,31 @@ def prepare_proxy_features(proxy_df: pd.DataFrame, code: str) -> pd.DataFrame:
 # =========================
 
 def build_model_features(symbol: str, start_date: Optional[str], end_date: Optional[str]) -> pd.DataFrame:
-    calendar_df = load_calendar()
     fundamental_df = load_fundamental(symbol)
     stock_df = load_daily_like(STOCK_DAILY_FILE, symbol=symbol)
 
-    if start_date:
-        start_ts = pd.to_datetime(start_date).normalize()
-        calendar_df = calendar_df[calendar_df["date"] >= start_ts].copy()
+    asof_df = resolve_asof_dates(
+        stock_df=stock_df,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    print_calendar_coverage_diagnostics(asof_df)
 
-    if end_date:
-        end_ts = pd.to_datetime(end_date).normalize()
-        calendar_df = calendar_df[calendar_df["date"] <= end_ts].copy()
-
-    if calendar_df.empty:
-        raise ValueError("过滤日期后，交易日历为空")
-
-    # 只保留个股实际有行情的交易日
-    stock_available_dates = set(stock_df["date"].dropna().tolist())
-    calendar_df = calendar_df[calendar_df["date"].isin(stock_available_dates)].copy()
-
-    if calendar_df.empty:
-        raise ValueError("交易日历与个股行情无交集，无法生成样本")
-
-    # 基本面锚点
-    base_df = build_fundamental_anchor_map(calendar_df, fundamental_df)
+    base_df = build_fundamental_anchor_map(asof_df, fundamental_df)
     base_df["symbol"] = symbol
 
-    # 时间衍生字段
     base_df["trade_year"] = base_df["asof_date"].dt.year
     base_df["trade_month"] = base_df["asof_date"].dt.month
     base_df["trade_dayofweek"] = base_df["asof_date"].dt.dayofweek
 
-    # 个股特征
     stock_features = prepare_stock_features(stock_df)
     out = base_df.merge(stock_features, on="asof_date", how="left")
 
-    # 指数特征
     for idx_key, idx_path in INDEX_FILES.items():
         idx_df = load_daily_like(idx_path)
         idx_feat = prepare_index_features(idx_df, idx_key)
         out = out.merge(idx_feat, on="asof_date", how="left")
 
-    # 相对强弱
     out["alpha_hsi_5d"] = out["stock_ret_5d"] - out["hsi_ret_5d"]
     out["alpha_hktech_5d"] = out["stock_ret_5d"] - out["hktech_ret_5d"]
     out["alpha_hscei_5d"] = out["stock_ret_5d"] - out["hscei_ret_5d"]
@@ -633,14 +642,12 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
     out["alpha_hktech_20d"] = out["stock_ret_20d"] - out["hktech_ret_20d"]
     out["alpha_hscei_20d"] = out["stock_ret_20d"] - out["hscei_ret_20d"]
 
-    # 代理层特征
     for proxy_code, proxy_path in PROXY_FILES.items():
         proxy_df = load_daily_like(proxy_path)
         proxy_feat = prepare_proxy_features(proxy_df, proxy_code)
         out = out.merge(proxy_feat, on="asof_date", how="left")
         out[f"alpha_vs_{proxy_code}_5d"] = out["stock_ret_5d"] - out[f"ret_{proxy_code}_5d"]
 
-    # 质量控制
     exclude_cols = {
         "symbol",
         "asof_date",
@@ -686,7 +693,6 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
     out["build_version"] = BUILD_VERSION
     out["built_at"] = pd.Timestamp.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # 强制列存在
     for col in FINAL_COLUMNS_ORDER:
         if col not in out.columns:
             out[col] = np.nan

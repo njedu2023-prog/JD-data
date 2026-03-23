@@ -1,7 +1,7 @@
 # Walk-forward Report v1
 
 - report_version: walk_forward_report_v1
-- built_at: 2026-03-23T17:21:17.167718Z
+- built_at: 2026-03-23T21:01:31.533890Z
 
 ## Data & version
 
@@ -31,4 +31,4 @@
 | model | ACC_mean | F1_mean | ROC_AUC_mean | Brier_mean |
 |---|---:|---:|---:|---:|
 | majority | 0.521212 | 0.000000 | 0.500000 | 0.250369 |
-| logistic | 0.522727 | 0.305289 | 0.527576 | 0.266511 |
+| logistic | 0.522727 | 0.305289 | 0.527576 | 0.266513 |

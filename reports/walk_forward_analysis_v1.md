@@ -1,21 +1,21 @@
-# Walk-forward 分析 v1
+Walk-forward 分析 v1
 
-- built_at: 2026-03-23T11:48:56Z
-- folds: 0
+* built_at: 2026-03-23T15:41:19Z
+* folds: 11
 
-## 回归（Ridge vs Random walk）
+回归 (Ridge vs Random walk)
 
-|metric|ridge (weighted)|random_walk (weighted)|p-value (ridge<base)|结论|
+|metric|model (weighted)|baseline (weighted)|p-value (model worse)|结论|
 |---|---:|---:|---:|---|
-|mae|None|None|None|无法检验|
-|rmse|None|None|None|无法检验|
-|ic|None|None|None|无法检验|
+|mae|0.02536643042453133|0.0200804941338718|0.0048828125|显著更差|
+|rmse|0.03428954767367527|0.027507781252975216|0.00048828125|显著更差|
+|ic|0.01096326798271038|0.0|0.51708984375|证据不足以证明更优|
 
-## 分类（Logistic vs Majority）
+分类 (Logistic vs Majority)
 
-|metric|logistic (weighted)|majority (weighted)|p-value (logistic<base)|结论|
+|metric|model (weighted)|baseline (weighted)|p-value (model worse)|结论|
 |---|---:|---:|---:|---|
-|accuracy|None|None|None|无法检验|
-|f1|None|None|None|无法检验|
-|roc_auc|None|None|None|无法检验|
-|brier|None|None|None|无法检验|
+|accuracy|0.5212121212121212|0.5212121212121212|0.443359375|证据不足以证明更优|
+|f1|0.33379952084496733|0.0|1.0|证据不足以证明更优|
+|roc_auc|0.5271577228306383|0.5|0.89697265625|证据不足以证明更优|
+|brier|0.2950744709402243|0.25036906024264494|0.03369140625|显著更差|

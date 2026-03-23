@@ -1,55 +1,63 @@
 {
   "analysis_version": "walk_forward_analysis_v1",
-  "built_at": "2026-03-23T11:48:56Z",
+  "built_at": "2026-03-23T15:41:19Z",
   "meta": {
-    "folds": 0,
-    "weights": []
+    "folds": 11,
+    "weights": [
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0,
+      60.0
+    ]
   },
   "regression": {
     "weighted": {
       "mae": {
-        "ridge": null,
-        "random_walk": null
+        "weighted_mean": 0.02536643042453133,
+        "baseline_weighted_mean": 0.0200804941338718,
+        "p_worse_than_baseline": 0.0048828125
       },
       "rmse": {
-        "ridge": null,
-        "random_walk": null
+        "weighted_mean": 0.03428954767367527,
+        "baseline_weighted_mean": 0.027507781252975216,
+        "p_worse_than_baseline": 0.00048828125
       },
       "ic": {
-        "ridge": null,
-        "random_walk": null
+        "weighted_mean": 0.01096326798271038,
+        "baseline_weighted_mean": 0.0,
+        "p_worse_than_baseline": 0.51708984375
       }
-    },
-    "pvalues": {
-      "mae": null,
-      "rmse": null,
-      "ic": null
     }
   },
   "classification": {
     "weighted": {
       "accuracy": {
-        "logistic": null,
-        "majority": null
+        "weighted_mean": 0.5212121212121212,
+        "baseline_weighted_mean": 0.5212121212121212,
+        "p_worse_than_baseline": 0.443359375
       },
       "f1": {
-        "logistic": null,
-        "majority": null
+        "weighted_mean": 0.33379952084496733,
+        "baseline_weighted_mean": 0.0,
+        "p_worse_than_baseline": 1.0
       },
       "roc_auc": {
-        "logistic": null,
-        "majority": null
+        "weighted_mean": 0.5271577228306383,
+        "baseline_weighted_mean": 0.5,
+        "p_worse_than_baseline": 0.89697265625
       },
       "brier": {
-        "logistic": null,
-        "majority": null
+        "weighted_mean": 0.2950744709402243,
+        "baseline_weighted_mean": 0.25036906024264494,
+        "p_worse_than_baseline": 0.03369140625
       }
-    },
-    "pvalues": {
-      "accuracy": null,
-      "f1": null,
-      "roc_auc": null,
-      "brier": null
     }
   }
 }

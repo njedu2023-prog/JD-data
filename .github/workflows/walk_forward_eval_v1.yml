@@ -1,0 +1,23 @@
+name: Walk-forward eval v1
+on:
+  workflow_dispatch:
+jobs:
+  walkforward:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas scikit-learn
+      - run: python scripts/walk_forward_eval_v1.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: walk_forward_eval_v1
+          path: data_model/02618.HK/walk_forward_eval_v1.json
+      - name: Commit results
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "data_model/02618.HK/walk_forward_eval_v1.json"
+          message: "[walkforward] 输出 - 生成"
+          default_author: github_actions

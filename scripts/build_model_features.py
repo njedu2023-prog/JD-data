@@ -12,24 +12,30 @@ build_model_features.py
 2. 以港股交易日为 asof_date 主轴，构建 model_features.csv
 3. 严格采用 as-of 对齐：
    - 每个 asof_date 只能吃到该日及以前可见的基本面锚点
-   - 默认以 report_date <= asof_date 做首版近似锚定
 4. 输出正式模型消费表：
    data_model/02618.HK/model_features.csv
 
+V2 核心升级：
+1. 基本面锚点选择从“最近优先”升级为：
+   - 质量优先
+   - 周期优先（annual > semiannual > quarter）
+   - 时间优先（在同质量同周期下取最近）
+2. 增加关键字段闸门
+3. 降低低质量 quarter 对样本母表的污染
+4. row_quality_flag 不再只看总缺失率
+
 说明：
-- 本脚本是 V1 首版构建器，目标是先把“统一消费表”稳定落地
 - 当前不负责标签生成
 - 当前不负责训练
 - 当前不负责预测
+- 当前只负责稳定生成模型消费母表
 """
 
 from __future__ import annotations
 
 import argparse
-import math
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -63,6 +69,9 @@ PROXY_FILES = {
     "1519": REPO_ROOT / "data_clean" / "1519.HK" / "daily_clean.csv",
 }
 
+BUILD_VERSION = "model_features_v2.0"
+
+# 数值基本面字段
 FUNDAMENTAL_NUMERIC_COLUMNS = [
     "revenue",
     "gross_profit",
@@ -125,6 +134,36 @@ FUNDAMENTAL_META_COLUMNS = [
     "data_version",
 ]
 
+# 关键字段闸门
+CRITICAL_FUNDAMENTAL_FIELDS = [
+    "revenue",
+    "gross_margin",
+    "net_profit",
+    "total_assets",
+    "total_liabilities",
+    "operating_cash_flow",
+    "debt_to_asset_ratio",
+    "revenue_external",
+    "revenue_jd_group",
+    "warehouse_count",
+]
+
+# 更偏“慢变量核心”的关键字段
+ANCHOR_STRENGTH_FIELDS = [
+    "revenue",
+    "gross_profit",
+    "gross_margin",
+    "net_profit",
+    "total_assets",
+    "total_liabilities",
+    "total_equity",
+    "operating_cash_flow",
+    "net_cash",
+    "debt_to_asset_ratio",
+    "external_revenue_ratio",
+    "jd_group_revenue_ratio",
+]
+
 FINAL_COLUMNS_ORDER = [
     # 身份层
     "symbol",
@@ -138,6 +177,9 @@ FINAL_COLUMNS_ORDER = [
     "fundamental_lag_days",
     "fundamental_quality_flag",
     "fundamental_data_version",
+    "fundamental_anchor_score",
+    "fundamental_critical_nonnull_count",
+    "fundamental_critical_nonnull_ratio",
     # 基本面慢变量层
     *FUNDAMENTAL_NUMERIC_COLUMNS,
     # 个股市场层
@@ -194,8 +236,6 @@ FINAL_COLUMNS_ORDER = [
     "built_at",
 ]
 
-BUILD_VERSION = "model_features_v1.0"
-
 
 # =========================
 # 工具函数
@@ -233,9 +273,6 @@ def normalize_symbol_column(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
 
 
 def make_return_features(df: pd.DataFrame, prefix: str, close_col: str = "close") -> pd.DataFrame:
-    """
-    给任意按日期排序的行情表增加收益与波动字段。
-    """
     if df.empty:
         return df
 
@@ -257,10 +294,6 @@ def make_return_features(df: pd.DataFrame, prefix: str, close_col: str = "close"
 
 
 def quality_rank(flag: str) -> int:
-    """
-    质量等级排序：
-    CONFIRMED > PARTIAL > RAW > 其他
-    """
     mapping = {
         "CONFIRMED": 3,
         "PARTIAL": 2,
@@ -269,19 +302,77 @@ def quality_rank(flag: str) -> int:
     return mapping.get(str(flag).upper(), 0)
 
 
-def derive_row_quality_flag(missing_ratio: float, fundamental_quality_flag: str) -> str:
+def period_rank(period_type: str) -> int:
+    mapping = {
+        "annual": 3,
+        "semiannual": 2,
+        "quarter": 1,
+    }
+    return mapping.get(str(period_type).lower(), 0)
+
+
+def count_nonnull_fields(row: pd.Series, cols: List[str]) -> int:
+    count = 0
+    for col in cols:
+        if col in row.index and pd.notna(row[col]):
+            count += 1
+    return count
+
+
+def calc_anchor_strength_score(row: pd.Series) -> float:
+    """
+    锚点选择综合分：
+    1. 质量优先
+    2. 周期优先
+    3. 关键字段越全越优
+    4. 慢变量核心越全越优
+    """
+    q_rank = quality_rank(str(row.get("quality_flag", "")))
+    p_rank = period_rank(str(row.get("period_type", "")))
+
+    critical_nonnull = count_nonnull_fields(row, CRITICAL_FUNDAMENTAL_FIELDS)
+    anchor_strength = count_nonnull_fields(row, ANCHOR_STRENGTH_FIELDS)
+
+    # 这里故意把质量和周期权重拉高，保证不会让“最近的烂 quarter”轻易赢
+    score = (
+        q_rank * 1000
+        + p_rank * 100
+        + critical_nonnull * 10
+        + anchor_strength
+    )
+    return float(score)
+
+
+def derive_row_quality_flag(
+    missing_ratio: float,
+    fundamental_quality_flag: str,
+    fundamental_anchor_period_type: str,
+    critical_nonnull_ratio: float,
+) -> str:
     f = str(fundamental_quality_flag).upper()
-    if f == "CONFIRMED" and missing_ratio <= 0.10:
+    p = str(fundamental_anchor_period_type).lower()
+
+    # 严格 PASS
+    if (
+        f == "CONFIRMED"
+        and critical_nonnull_ratio >= 0.90
+        and missing_ratio <= 0.10
+    ):
         return "PASS"
-    if f in {"CONFIRMED", "PARTIAL"} and missing_ratio <= 0.25:
+
+    # PARTIAL：允许 semiannual / quarter，但必须不是太残
+    if (
+        f in {"CONFIRMED", "PARTIAL"}
+        and critical_nonnull_ratio >= 0.60
+        and missing_ratio <= 0.25
+    ):
         return "PARTIAL"
+
+    # 低质量 quarter 或关键字段太残，直接 REVIEW
+    if p == "quarter" and (f == "RAW" or critical_nonnull_ratio < 0.60):
+        return "REVIEW"
+
     return "REVIEW"
-
-
-def safe_div(a: float, b: float) -> float:
-    if pd.isna(a) or pd.isna(b) or b == 0:
-        return np.nan
-    return a / b
 
 
 # =========================
@@ -291,17 +382,13 @@ def safe_div(a: float, b: float) -> float:
 def load_calendar() -> pd.DataFrame:
     df = read_csv_safe(CALENDAR_FILE, required=True)
 
-    date_col = find_first_existing_column(
-        df,
-        ["trade_date", "date", "calendar_date"]
-    )
+    date_col = find_first_existing_column(df, ["trade_date", "date", "calendar_date"])
     if date_col is None:
         raise ValueError("hk_trade_calendar.csv 未找到日期列")
 
     df = standardize_date_col(df, date_col)
     df = df.rename(columns={date_col: "date"})
 
-    # 兼容不同字段命名
     is_open_col = find_first_existing_column(df, ["is_open", "open", "is_trade_day"])
     if is_open_col is not None:
         df = df[df[is_open_col].astype(str).isin(["1", "True", "true", "TRUE"])].copy()
@@ -319,27 +406,37 @@ def load_fundamental(symbol: str) -> pd.DataFrame:
     else:
         df["symbol"] = symbol
 
-    # 首版保留 annual / semiannual / quarter，但优先级 annual > semiannual > quarter
-    period_rank_map = {
-        "annual": 3,
-        "semiannual": 2,
-        "quarter": 1,
-    }
-    df["period_rank"] = df["period_type"].map(period_rank_map).fillna(0)
-
     if "quality_flag" not in df.columns:
         df["quality_flag"] = "UNKNOWN"
     if "data_version" not in df.columns:
         df["data_version"] = ""
 
-    keep_cols = ["symbol"] + FUNDAMENTAL_META_COLUMNS + ["period_rank"]
+    keep_cols = ["symbol"] + FUNDAMENTAL_META_COLUMNS
     for col in FUNDAMENTAL_NUMERIC_COLUMNS:
         if col not in df.columns:
             df[col] = np.nan
         keep_cols.append(col)
 
     df = df[keep_cols].copy()
-    df = df.sort_values(["report_date", "period_rank"]).reset_index(drop=True)
+
+    # 基本评级
+    df["quality_rank"] = df["quality_flag"].map(quality_rank)
+    df["period_rank"] = df["period_type"].map(period_rank)
+
+    # 关键字段完整度
+    df["critical_nonnull_count"] = df.apply(
+        lambda r: count_nonnull_fields(r, CRITICAL_FUNDAMENTAL_FIELDS), axis=1
+    )
+    df["critical_nonnull_ratio"] = df["critical_nonnull_count"] / len(CRITICAL_FUNDAMENTAL_FIELDS)
+
+    # 综合分
+    df["anchor_score"] = df.apply(calc_anchor_strength_score, axis=1)
+
+    df = df.sort_values(
+        ["report_date", "anchor_score", "quality_rank", "period_rank"],
+        ascending=[True, False, False, False],
+    ).reset_index(drop=True)
+
     return df
 
 
@@ -349,6 +446,7 @@ def load_daily_like(path: Path, symbol: Optional[str] = None) -> pd.DataFrame:
     date_col = find_first_existing_column(df, ["date", "trade_date"])
     if date_col is None:
         raise ValueError(f"{path.name} 未找到 date/trade_date 列")
+
     df = standardize_date_col(df, date_col)
     df = df.rename(columns={date_col: "date"})
 
@@ -366,58 +464,83 @@ def load_daily_like(path: Path, symbol: Optional[str] = None) -> pd.DataFrame:
 
 
 # =========================
-# 基本面对齐
+# 锚点选择 V2
 # =========================
 
+def select_best_fundamental_anchor(
+    candidates: pd.DataFrame,
+) -> Optional[pd.Series]:
+    """
+    选择规则：
+    1. 先限定 asof_date 之前可见的全部记录
+    2. 在候选里按：
+       - anchor_score 高
+       - quality_rank 高
+       - period_rank 高
+       - report_date 近
+       排序
+    3. 返回第一条
+
+    这样 annual / 高质量 semiannual 会压过低质量 quarter。
+    """
+    if candidates.empty:
+        return None
+
+    ranked = candidates.sort_values(
+        ["anchor_score", "quality_rank", "period_rank", "report_date"],
+        ascending=[False, False, False, False],
+    ).reset_index(drop=True)
+
+    return ranked.iloc[0]
+
+
 def build_fundamental_anchor_map(calendar_df: pd.DataFrame, fundamental_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    对每个交易日，找到 report_date <= asof_date 的最近一条基本面记录。
-    若同一 report_date 有多条，则优先：
-    period_rank 高者优先，quality_flag 高者优先。
-    """
     if fundamental_df.empty:
         raise ValueError("fundamental_features.csv 为空，无法构建 model_features")
 
-    f = fundamental_df.copy()
-    f["quality_rank"] = f["quality_flag"].map(quality_rank)
+    rows = []
 
-    # 同一个 report_date 下保留最优记录
-    f = (
-        f.sort_values(["report_date", "period_rank", "quality_rank"], ascending=[True, False, False])
-         .drop_duplicates(subset=["report_date"], keep="first")
-         .reset_index(drop=True)
-    )
+    f = fundamental_df.copy().sort_values("report_date").reset_index(drop=True)
 
-    base = calendar_df.copy()
-    base = base.rename(columns={"date": "asof_date"})
+    for asof_date in calendar_df["date"].tolist():
+        candidates = f[f["report_date"] <= asof_date].copy()
 
-    # merge_asof 要求排序
-    left = base.sort_values("asof_date").reset_index(drop=True)
-    right = f.sort_values("report_date").reset_index(drop=True)
+        best = select_best_fundamental_anchor(candidates)
+        if best is None:
+            row = {
+                "asof_date": asof_date,
+                "fundamental_anchor_date": pd.NaT,
+                "fundamental_anchor_period_type": np.nan,
+                "fundamental_lag_days": np.nan,
+                "fundamental_quality_flag": np.nan,
+                "fundamental_data_version": np.nan,
+                "fundamental_anchor_score": np.nan,
+                "fundamental_critical_nonnull_count": np.nan,
+                "fundamental_critical_nonnull_ratio": np.nan,
+            }
+            for col in FUNDAMENTAL_NUMERIC_COLUMNS:
+                row[col] = np.nan
+            rows.append(row)
+            continue
 
-    merged = pd.merge_asof(
-        left,
-        right,
-        left_on="asof_date",
-        right_on="report_date",
-        direction="backward",
-        allow_exact_matches=True,
-    )
-
-    merged = merged.rename(
-        columns={
-            "report_date": "fundamental_anchor_date",
-            "period_type": "fundamental_anchor_period_type",
-            "quality_flag": "fundamental_quality_flag",
-            "data_version": "fundamental_data_version",
+        row = {
+            "asof_date": asof_date,
+            "fundamental_anchor_date": best["report_date"],
+            "fundamental_anchor_period_type": best["period_type"],
+            "fundamental_lag_days": (asof_date - best["report_date"]).days,
+            "fundamental_quality_flag": best["quality_flag"],
+            "fundamental_data_version": best["data_version"],
+            "fundamental_anchor_score": best["anchor_score"],
+            "fundamental_critical_nonnull_count": best["critical_nonnull_count"],
+            "fundamental_critical_nonnull_ratio": best["critical_nonnull_ratio"],
         }
-    )
 
-    merged["fundamental_lag_days"] = (
-        merged["asof_date"] - merged["fundamental_anchor_date"]
-    ).dt.days
+        for col in FUNDAMENTAL_NUMERIC_COLUMNS:
+            row[col] = best[col] if col in best.index else np.nan
 
-    return merged
+        rows.append(row)
+
+    return pd.DataFrame(rows)
 
 
 # =========================
@@ -427,8 +550,7 @@ def build_fundamental_anchor_map(calendar_df: pd.DataFrame, fundamental_df: pd.D
 def prepare_stock_features(stock_df: pd.DataFrame) -> pd.DataFrame:
     df = make_return_features(stock_df, prefix="stock", close_col="close")
     keep = ["date", "close", "stock_ret_1d", "stock_ret_5d", "stock_ret_20d", "stock_vol_5d", "stock_vol_20d"]
-    df = df[keep].rename(columns={"date": "asof_date", "close": "stock_close"})
-    return df
+    return df[keep].rename(columns={"date": "asof_date", "close": "stock_close"})
 
 
 def prepare_index_features(index_df: pd.DataFrame, key: str) -> pd.DataFrame:
@@ -476,13 +598,14 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
     if calendar_df.empty:
         raise ValueError("过滤日期后，交易日历为空")
 
-    # 以个股行情实际存在日期做进一步约束，避免空交易日样本泛滥
+    # 只保留个股实际有行情的交易日
     stock_available_dates = set(stock_df["date"].dropna().tolist())
     calendar_df = calendar_df[calendar_df["date"].isin(stock_available_dates)].copy()
 
     if calendar_df.empty:
         raise ValueError("交易日历与个股行情无交集，无法生成样本")
 
+    # 基本面锚点
     base_df = build_fundamental_anchor_map(calendar_df, fundamental_df)
     base_df["symbol"] = symbol
 
@@ -518,27 +641,29 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
         out[f"alpha_vs_{proxy_code}_5d"] = out["stock_ret_5d"] - out[f"ret_{proxy_code}_5d"]
 
     # 质量控制
-    feature_cols_for_missing = [
-        c for c in FINAL_COLUMNS_ORDER
-        if c not in {
-            "symbol",
-            "asof_date",
-            "trade_year",
-            "trade_month",
-            "trade_dayofweek",
-            "fundamental_anchor_date",
-            "fundamental_anchor_period_type",
-            "fundamental_lag_days",
-            "fundamental_quality_flag",
-            "fundamental_data_version",
-            "row_quality_flag",
-            "missing_ratio",
-            "feature_count_total",
-            "feature_count_nonnull",
-            "build_version",
-            "built_at",
-        }
-    ]
+    exclude_cols = {
+        "symbol",
+        "asof_date",
+        "trade_year",
+        "trade_month",
+        "trade_dayofweek",
+        "fundamental_anchor_date",
+        "fundamental_anchor_period_type",
+        "fundamental_lag_days",
+        "fundamental_quality_flag",
+        "fundamental_data_version",
+        "fundamental_anchor_score",
+        "fundamental_critical_nonnull_count",
+        "fundamental_critical_nonnull_ratio",
+        "row_quality_flag",
+        "missing_ratio",
+        "feature_count_total",
+        "feature_count_nonnull",
+        "build_version",
+        "built_at",
+    }
+
+    feature_cols_for_missing = [c for c in FINAL_COLUMNS_ORDER if c not in exclude_cols]
 
     out["feature_count_total"] = len(feature_cols_for_missing)
     out["feature_count_nonnull"] = out[feature_cols_for_missing].notna().sum(axis=1)
@@ -548,6 +673,12 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
         lambda r: derive_row_quality_flag(
             missing_ratio=float(r["missing_ratio"]),
             fundamental_quality_flag=str(r.get("fundamental_quality_flag", "")),
+            fundamental_anchor_period_type=str(r.get("fundamental_anchor_period_type", "")),
+            critical_nonnull_ratio=float(
+                r.get("fundamental_critical_nonnull_ratio")
+                if pd.notna(r.get("fundamental_critical_nonnull_ratio"))
+                else 0.0
+            ),
         ),
         axis=1,
     )
@@ -561,8 +692,6 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
             out[col] = np.nan
 
     out = out[FINAL_COLUMNS_ORDER].sort_values(["symbol", "asof_date"]).reset_index(drop=True)
-
-    # 最后去重保护
     out = out.drop_duplicates(subset=["symbol", "asof_date"], keep="last").reset_index(drop=True)
 
     return out
@@ -603,6 +732,7 @@ def main() -> None:
 
     print(f"[OK] model_features 已生成: {output_path}")
     print(f"[OK] rows={len(model_df)}")
+
     if not model_df.empty:
         print(
             "[OK] date_range="
@@ -611,6 +741,14 @@ def main() -> None:
         print(
             "[OK] row_quality_flag_counts="
             f"{model_df['row_quality_flag'].value_counts(dropna=False).to_dict()}"
+        )
+        print(
+            "[OK] anchor_period_counts="
+            f"{model_df['fundamental_anchor_period_type'].value_counts(dropna=False).to_dict()}"
+        )
+        print(
+            "[OK] fundamental_quality_counts="
+            f"{model_df['fundamental_quality_flag'].value_counts(dropna=False).to_dict()}"
         )
 
 

@@ -15,7 +15,7 @@ build_fundamental_features.py
 4. 生成下游消费层：
    data_fundamental/<symbol>/fundamental_features.csv
 
-V2.4 设计原则：
+V2.5 设计原则：
 - 当前主线第一优先：annual 主干已闭环，转入口径显式化 + 非 annual 消费规则建设
 - 不回退旧话题，不重复验证 workflow
 - 不再只依赖简单 pivot merge，而是显式做行级消费
@@ -24,6 +24,7 @@ V2.4 设计原则：
 - 比例字段统一输出为“百分数数值”，例如 9.1 表示 9.1%
 - statement_items 金额字段统一标准化到 million RMB 后再进入 features
 - 修复 quality_flag 误判：不再把 external_customer_revenue 与 revenue_external 视为同口径冲突字段
+- 收口 non-annual 标签层：quarter / semiannual 不再输出会误导下游的重解释标签
 
 核心口径约束（必须长期保持一致）：
 1. trade_payables 采用“仓库统一总额口径”
@@ -43,6 +44,7 @@ V2.4 设计原则：
    - semiannual：允许消费核心摘要字段，允许少量轻派生，但不主动补齐附注类字段
    - quarter：优先消费利润表 / 运营摘要，不默认要求完整资产负债表与附注层
    - 非 annual 场景下，账龄、供应链金融、客户结构拆分、自由现金流推导等重派生默认降级或禁算
+   - 非 annual 场景下，解释型标签也必须同步降级，避免“计算层已禁算、标签层还在误解释”
 
 4. quality_flag 三层逻辑
    - annual：可判 CONFIRMED / PARTIAL / RAW
@@ -62,7 +64,7 @@ import pandas as pd
 
 
 DEFAULT_SYMBOL = "02618.HK"
-DATA_VERSION = "V2.4"
+DATA_VERSION = "V2.5"
 
 PRIMARY_KEYS = ["symbol", "report_date", "period_type"]
 
@@ -219,25 +221,6 @@ SEMIANNUAL_STABLE_FIELDS = [
     "warehouse_count",
 ]
 
-NON_ANNUAL_HEAVY_DERIVED_COLS = [
-    "receivables_ratio",
-    "contract_assets_ratio",
-    "inventory_ratio",
-    "payables_ratio",
-    "supplier_finance_ratio",
-    "receivables_over_6m_ratio",
-    "receivables_over_12m_ratio",
-    "payables_over_12m_ratio",
-    "receivables_loss_allowance_ratio",
-    "free_cash_flow_margin",
-    "capex_intensity",
-    "cash_conversion_quality_score",
-    "external_revenue_ratio",
-    "jd_group_revenue_ratio",
-    "integrated_supply_chain_revenue_ratio",
-    "external_isc_revenue_ratio",
-]
-
 SEMIANNUAL_BLOCKED_DERIVED_COLS = [
     "receivables_over_6m_ratio",
     "receivables_over_12m_ratio",
@@ -270,6 +253,37 @@ QUARTER_BLOCKED_DERIVED_COLS = [
     "jd_group_revenue_ratio",
     "integrated_supply_chain_revenue_ratio",
     "external_isc_revenue_ratio",
+]
+
+ANNUAL_FULL_TAG_COLUMNS = [
+    "working_capital_pressure_tag",
+    "receivables_quality_tag",
+    "supplier_finance_usage_tag",
+    "cash_flow_quality_tag",
+    "customer_structure_tag",
+    "globalization_phase_tag",
+    "network_expansion_tag",
+]
+
+SEMIANNUAL_ALLOWED_TAG_COLUMNS = [
+    "working_capital_pressure_tag",
+    "globalization_phase_tag",
+    "network_expansion_tag",
+]
+
+QUARTER_ALLOWED_TAG_COLUMNS = [
+    "globalization_phase_tag",
+    "network_expansion_tag",
+]
+
+TAG_COLUMNS = [
+    "working_capital_pressure_tag",
+    "receivables_quality_tag",
+    "supplier_finance_usage_tag",
+    "cash_flow_quality_tag",
+    "customer_structure_tag",
+    "globalization_phase_tag",
+    "network_expansion_tag",
 ]
 
 
@@ -744,7 +758,6 @@ def derive_row(row: pd.Series) -> pd.Series:
 
     period_type = row.get("period_type", "")
 
-    # annual-only 安全补齐
     if period_type == "annual":
         revenue_other_customers, derived_flag = derive_revenue_other_customers(row)
         if pd.notna(revenue_other_customers):
@@ -788,7 +801,6 @@ def derive_row(row: pd.Series) -> pd.Series:
     integrated_supply_chain_revenue = row.get("integrated_supply_chain_revenue", np.nan)
     revenue_external_integrated_supply_chain = row.get("revenue_external_integrated_supply_chain", np.nan)
 
-    # 基础可算项：annual / semiannual 均可，quarter 默认先算后再按规则降级
     if pd.notna(cash_and_cash_equivalents) and pd.notna(borrowings):
         row["net_cash"] = cash_and_cash_equivalents + restricted_cash + term_deposits - borrowings
     else:
@@ -836,23 +848,18 @@ def derive_row(row: pd.Series) -> pd.Series:
     row["integrated_supply_chain_revenue_ratio"] = pct(revenue_integrated_preferred, revenue)
     row["external_isc_revenue_ratio"] = pct(revenue_external_integrated_supply_chain, revenue)
 
-    # period-specific 降级/禁算
     if period_type == "semiannual":
-        # semiannual 允许少量轻派生，但以下附注/拆分/重派生默认禁算
         row = nullify_columns(row, SEMIANNUAL_BLOCKED_DERIVED_COLS)
 
-        # free_cash_flow_margin / capex_intensity 仅允许源值存在时保留，不主动推导
         if pd.isna(row.get("free_cash_inflow", np.nan)):
             row["free_cash_flow_margin"] = np.nan
         if pd.isna(row.get("capex_net", np.nan)):
             row["capex_intensity"] = np.nan
 
-        # 现金转换质量分数只在两项均有值时保留
         if pd.isna(row.get("operating_cash_flow_margin", np.nan)) or pd.isna(row.get("receivables_ratio", np.nan)):
             row["cash_conversion_quality_score"] = np.nan
 
     elif period_type == "quarter":
-        # quarter 默认禁掉所有重派生，仅保留轻派生与经营类摘要
         row = nullify_columns(row, QUARTER_BLOCKED_DERIVED_COLS)
 
     row["_derived_field_notes"] = "|".join(derived_notes)
@@ -991,6 +998,45 @@ def add_network_expansion_tag(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def apply_non_annual_tag_policy(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    收口 non-annual 标签层，避免“计算层已禁算/降级，但解释标签仍在误导”。
+
+    规则：
+    - annual：保留全部标签
+    - semiannual：仅保留 working_capital_pressure_tag / globalization_phase_tag / network_expansion_tag
+    - quarter：仅保留 globalization_phase_tag / network_expansion_tag
+    """
+    if df.empty:
+        return df
+
+    for col in TAG_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+
+    annual_mask = df["period_type"] == "annual"
+    semiannual_mask = df["period_type"] == "semiannual"
+    quarter_mask = df["period_type"] == "quarter"
+
+    semiannual_drop = [c for c in TAG_COLUMNS if c not in SEMIANNUAL_ALLOWED_TAG_COLUMNS]
+    quarter_drop = [c for c in TAG_COLUMNS if c not in QUARTER_ALLOWED_TAG_COLUMNS]
+
+    if semiannual_drop:
+        df.loc[semiannual_mask, semiannual_drop] = ""
+
+    if quarter_drop:
+        df.loc[quarter_mask, quarter_drop] = ""
+
+    # annual 不动；若未来出现未知 period_type，保守清空重解释标签
+    unknown_mask = ~(annual_mask | semiannual_mask | quarter_mask)
+    unknown_keep = {"globalization_phase_tag", "network_expansion_tag"}
+    unknown_drop = [c for c in TAG_COLUMNS if c not in unknown_keep]
+    if unknown_drop:
+        df.loc[unknown_mask, unknown_drop] = ""
+
+    return df
+
+
 def has_implausible_ratio(row: pd.Series) -> bool:
     suspicious_cols = [
         "receivables_ratio",
@@ -1121,7 +1167,7 @@ def build_feature_note(row: pd.Series) -> str:
 
 def assign_row_quality_flag(row: pd.Series) -> str:
     """
-    V2.4 逻辑：
+    V2.5 逻辑：
     1. 若出现异常比例爆炸，直接 REVIEW
     2. 若出现真正的资产/收入对账冲突，REVIEW
     3. annual 行按覆盖率判 CONFIRMED / PARTIAL / RAW
@@ -1295,6 +1341,9 @@ def build_features(base_dir: Path) -> pd.DataFrame:
     df["globalization_phase_tag"] = df.apply(label_globalization_phase, axis=1)
     df = add_network_expansion_tag(df)
 
+    # 核心收口：non-annual 标签层闸门
+    df = apply_non_annual_tag_policy(df)
+
     df["data_version"] = DATA_VERSION
     df["source_summary"] = "fundamental_quarterly+fundamental_statement_items"
     df["updated_at"] = now_iso()
@@ -1356,6 +1405,13 @@ def main():
                 "payables_3_to_6m",
                 "payables_6_to_12m",
                 "payables_over_12m",
+                "working_capital_pressure_tag",
+                "receivables_quality_tag",
+                "supplier_finance_usage_tag",
+                "cash_flow_quality_tag",
+                "customer_structure_tag",
+                "globalization_phase_tag",
+                "network_expansion_tag",
                 "mapped_item_nonnull_count",
                 "quality_flag",
                 "feature_note",

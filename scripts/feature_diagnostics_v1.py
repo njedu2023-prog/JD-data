@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -76,7 +76,7 @@ def main():
     for c in features:
         s = df_feat[c]
         missing_rate = float(s.isna().mean())
-        nonfinite_rate = float(~np.isfinite(pd.to_numeric(s, errors="coerce")).mean())
+        nonfinite_rate = float((~np.isfinite(pd.to_numeric(s, errors="coerce"))).mean())
         arr = pd.to_numeric(s, errors="coerce")
         records.append(
             {

@@ -1,0 +1,33 @@
+name: Build model labels
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+      - name: Build labels and dataset
+        run: |
+          python scripts/build_model_labels.py
+      - name: Commit changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add data_model/02618.HK/model_labels.csv data_model/02618.HK/model_dataset.csv
+          if ! git diff --cached --quiet; then
+            git commit -m "build model labels and dataset"
+            git push
+          else
+            echo "No changes to commit"
+          fi

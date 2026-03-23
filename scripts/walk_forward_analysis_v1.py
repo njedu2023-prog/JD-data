@@ -13,7 +13,7 @@ OUT_MD = Path("reports/walk_forward_analysis_v1.md")
 def safe_wilcoxon(a, b):
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
-    # drop nans
+
     mask = np.isfinite(a) & np.isfinite(b)
     a = a[mask]
     b = b[mask]
@@ -21,6 +21,7 @@ def safe_wilcoxon(a, b):
         return None
     if np.allclose(a, b):
         return None
+
     try:
         res = stats.wilcoxon(a, b, alternative="less")
     except Exception:
@@ -31,134 +32,91 @@ def safe_wilcoxon(a, b):
 def weighted_mean(values, weights):
     values = np.asarray(values, dtype=float)
     weights = np.asarray(weights, dtype=float)
+
     mask = np.isfinite(values) & np.isfinite(weights)
     values = values[mask]
     weights = weights[mask]
     if len(values) == 0 or weights.sum() <= 0:
         return None
+
     return float(np.average(values, weights=weights))
+
+
+def extract_weights(data, folds):
+    weights = []
+    for f in folds:
+        meta = f.get("meta", {})
+        w = meta.get("test_rows")
+        if w is None:
+            w = meta.get("test_size")
+        if w is None:
+            w = data.get("params", {}).get("test_size")
+        weights.append(float(w) if w is not None else np.nan)
+    return weights
+
+
+def get_metric_list(folds, model, metric):
+    vals = []
+    for f in folds:
+        m = f.get("metrics", {}).get(model, {})
+        vals.append(m.get(metric))
+    return vals
+
+
+def build_section(folds, weights, model, baseline, metrics):
+    section = {}
+    for m in metrics:
+        vals_model = get_metric_list(folds, model, m)
+        vals_base = get_metric_list(folds, baseline, m)
+        section[m] = {
+            "weighted_mean": weighted_mean(vals_model, weights),
+            "baseline_weighted_mean": weighted_mean(vals_base, weights),
+            "p_worse_than_baseline": safe_wilcoxon(vals_model, vals_base),
+        }
+    return section
 
 
 def main():
     data = json.loads(IN_JSON.read_text())
-    folds = data.get("folds", [])
 
-    weights = []
-    for f in folds:
-        meta = f.get("meta", {})
-        w = meta.get("test_size")
-        if w is None:
-            w = meta.get("test_rows")
-        if w is None:
-            w = f.get("test_size")
-        if w is None:
-            w = 1
-        weights.append(w)
+    reg = data.get("regression", {})
+    cls = data.get("classification", {})
 
-    reg_metric_names = ["mae", "rmse", "ic"]
-    reg_model = {m: [] for m in reg_metric_names}
-    reg_base = {m: [] for m in reg_metric_names}
+    reg_folds = reg.get("folds", [])
+    cls_folds = cls.get("folds", [])
+    weights = extract_weights(data, reg_folds)
 
-    cls_metric_names = ["accuracy", "f1", "roc_auc", "brier"]
-    cls_model = {m: [] for m in cls_metric_names}
-    cls_base = {m: [] for m in cls_metric_names}
+    regression = build_section(reg_folds, weights, "ridge", "random_walk", ["mae", "rmse", "ic"])
+    classification = build_section(cls_folds, weights, "logistic", "majority", ["accuracy", "f1", "roc_auc", "brier"])
 
-    for f in folds:
-        reg = f.get("regression", {})
-        ridge = reg.get("ridge", {})
-        rw = reg.get("random_walk", {})
-        reg_model["mae"].append(ridge.get("MAE") or ridge.get("mae"))
-        reg_model["rmse"].append(ridge.get("RMSE") or ridge.get("rmse"))
-        reg_model["ic"].append(ridge.get("IC") or ridge.get("ic"))
-
-        reg_base["mae"].append(rw.get("MAE") or rw.get("mae"))
-        reg_base["rmse"].append(rw.get("RMSE") or rw.get("rmse"))
-        reg_base["ic"].append(rw.get("IC") or rw.get("ic"))
-
-        cls = f.get("classification", {})
-        lg = cls.get("logistic", {})
-        maj = cls.get("majority", {})
-        for m in cls_metric_names:
-            cls_model[m].append(lg.get(m))
-            cls_base[m].append(maj.get(m))
-
-    analysis = {
-        "analysis_version": "walk_forward_analysis_v1",
-        "built_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    out = {
+        "report_version": "walk_forward_analysis_v1",
+        "built_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "meta": {
-            "folds": len(folds),
+            "folds": len(reg_folds),
             "weights": weights,
         },
-        "regression": {
-            "weighted": {
-                m: {
-                    "ridge": weighted_mean(reg_model[m], weights),
-                    "random_walk": weighted_mean(reg_base[m], weights),
-                }
-                for m in reg_metric_names
-            },
-            "pvalues": {m: safe_wilcoxon(reg_model[m], reg_base[m]) for m in reg_metric_names},
-        },
-        "classification": {
-            "weighted": {
-                m: {
-                    "logistic": weighted_mean(cls_model[m], weights),
-                    "majority": weighted_mean(cls_base[m], weights),
-                }
-                for m in cls_metric_names
-            },
-            "pvalues": {m: safe_wilcoxon(cls_model[m], cls_base[m]) for m in cls_metric_names},
-        },
+        "regression": regression,
+        "classification": classification,
     }
 
-    def fmt(x):
-        return "None" if x is None else f"{x:.6f}"
+    OUT_JSON.write_text(json.dumps(out, ensure_ascii=False, indent=2))
 
-    md_lines = []
-    md_lines.append("# Walk-forward 分析 v1")
-    md_lines.append("")
-    md_lines.append(f"- built_at: {analysis['built_at']}")
-    md_lines.append(f"- folds: {len(folds)}")
-    md_lines.append("")
-
-    md_lines.append("## 回归（Ridge vs Random walk）")
-    md_lines.append("")
-    md_lines.append("|metric|ridge (weighted)|random_walk (weighted)|p-value (ridge<base)|结论|")
-    md_lines.append("|---|---:|---:|---:|---|")
-    for m in reg_metric_names:
-        pv = analysis["regression"]["pvalues"][m]
-        if pv is None:
-            concl = "无法检验"
-        elif pv < 0.05:
-            concl = "显著弱于基线"
-            #: noqa
-        else:
-            concl = "未显著弱于基线"
-        md_lines.append(
-            f"|{m}|{fmt(analysis['regression']['weighted'][m]['ridge'])}|"
-            f"{fmt(analysis['regression']['weighted'][m]['random_walk'])}|{fmt(pv)}|{concl}|"
-        )
+    md_lines = [
+        "## walk-forward analysis v1",
+        f"built_at: {out['built_at']}",
+        "",
+        "### regression (ridge vs random walk)",
+    ]
+    for k, v in regression.items():
+        md_lines.append(f"- {k}: {v}")
 
     md_lines.append("")
-    md_lines.append("## 分类（Logistic vs Majority）")
-    md_lines.append("")
-    md_lines.append("|metric|logistic (weighted)|majority (weighted)|p-value (logistic<base)|结论|")
-    md_lines.append("|---|---:|---:|---:|---|")
-    for m in cls_metric_names:
-        pv = analysis["classification"]["pvalues"][m]
-        if pv is None:
-            concl = "无法检验"
-        elif pv < 0.05:
-            concl = "显著弱于基线"
-        else:
-            concl = "未显著弱于基线"
-        md_lines.append(
-            f"|{m}|{fmt(analysis['classification']['weighted'][m]['logistic'])}|"
-            f"{fmt(analysis['classification']['weighted'][m]['majority'])}|{fmt(pv)}|{concl}|"
-        )
+    md_lines.append("### classification (logistic vs majority)")
+    for k, v in classification.items():
+        md_lines.append(f"- {k}: {v}")
 
-    OUT_JSON.write_text(json.dumps(analysis, ensure_ascii=False, indent=2))
-    OUT_MD.write_text("\n".join(md_lines))
+    OUT_MD.write_text("\n".join(md_lines) + "\n")
 
 
 if __name__ == "__main__":

@@ -4,12 +4,10 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-
 DATASET_PATH = "data_model/02618.HK/model_dataset.csv"
 
 
-def _get_features(df: pd.DataFrame) -> list[str]:
-    # Keep consistent with train_baseline_models_v3.
+def get_features(df: pd.DataFrame) -> list[str]:
     drop_cols = {
         "date",
         "ticker",
@@ -26,12 +24,35 @@ def _get_features(df: pd.DataFrame) -> list[str]:
         "HSCEI_roll",
         "HKTECH_roll",
         "benchmark_roll",
+        "symbol",
+        "asof_date",
+        "fundamental_anchor_date",
+        "fundamental_anchor_period_type",
+        "fundamental_quality_flag",
+        "fundamental_data_version",
+        "row_quality_flag",
     }
-    features = [c for c in df.columns if not c.startswith("y_") and c not in drop_cols]
+
+    def is_meta(col: str) -> bool:
+        if col in drop_cols:
+            return True
+        if col.startswith("y_"):
+            return True
+        if col.startswith("built_at"):
+            return True
+        if col.endswith("_flag"):
+            return True
+        if col.endswith("_version"):
+            return True
+        return False
+
+    # remove columns that are entirely missing
+    candidates = [c for c in df.columns if not is_meta(c)]
+    features = [c for c in candidates if df[c].notna().sum() > 0]
     return features
 
 
-def _safe_corr(x: pd.Series, y: pd.Series) -> float | None:
+def safe_corr(x: pd.Series, y: pd.Series) -> float | None:
     x = pd.to_numeric(x, errors="coerce")
     y = pd.to_numeric(y, errors="coerce")
     mask = x.notna() & y.notna()
@@ -40,123 +61,77 @@ def _safe_corr(x: pd.Series, y: pd.Series) -> float | None:
     return float(x[mask].corr(y[mask]))
 
 
-def _yearly_corr_stability(df: pd.DataFrame, feat: str, target: str) -> dict:
-    if "date" not in df.columns:
-        return {"years": 0, "sign_changes": None, "year_corr": []}
-
-    dfx = df[["date", feat, target]].copy()
-    dfx["date"] = pd.to_datetime(dfx["date"], errors="coerce")
-    dfx.dropna(subset=["date"], inplace=True)
-    dfx["year"] = dfx["date"].dt.year
-
-    per_year = []
-    for y, g in dfx.groupby("year"):
-        c = _safe_corr(g[feat], g[target])
-        if c is not None:
-            per_year.append((int(y), c))
-
-    if not per_year:
-        return {"years": 0, "sign_changes": None, "year_corr": []}
-
-    per_year.sort(key=lambda t: t[0])
-    corr_values = [c for _, c in per_year]
-    signs = [np.sign(c) for c in corr_values]
-
-    sign_changes = None
-    if len(signs) >= 2:
-        sign_changes = int(sum(int(a != b) for a, b in zip(signs, signs[1:])))
-
-    return {
-        "years": len(corr_values),
-        "sign_changes": sign_changes,
-        "year_corr": [{"year": y, "corr": float(c)} for y, c in per_year],
-    }
-
-
 def main():
     df = pd.read_csv(DATASET_PATH)
-    features = _get_features(df)
 
-    diagnostics = {}
-    for feat in features:
-        s = pd.to_numeric(df[feat], errors="coerce")
-        miss_rate = float(s.isna().mean())
-        nonfinite = float((~np.isfinite(s)).mean())
+    features = get_features(df)
+    df_feat = df[features].copy()
 
-        diag = {
-            "missing_rate": miss_rate,
-            "nonfinite_rate": nonfinite,
-            "mean": float(s.mean(skipna=True)) if miss_rate < 1 else None,
-            "std": float(s.std(skipna=True)) if miss_rate < 1 else None,
-            "min": float(s.min(skipna=True)) if miss_rate < 1 else None,
-            "max": float(s.max(skipna=True)) if miss_rate < 1 else None,
-            "corr_y_ret_1d": _safe_corr(s, df.get("y_ret_1d")),
-            "corr_y_up_1d": _safe_corr(s, df.get("y_up_1d")),
-        }
+    y_ret = df.get("y_ret_1d")
+    y_up = df.get("y_up_1d")
 
-        diag["stability_ret"] = _yearly_corr_stability(df, feat, "y_ret_1d")
-        diag["stability_up"] = _yearly_corr_stability(df, feat, "y_up_1d")
+    rows = len(df)
 
-        diagnostics[feat] = diag
+    records = []
+    for c in features:
+        s = df_feat[c]
+        missing_rate = float(s.isna().mean())
+        nonfinite_rate = float(~np.isfinite(pd.to_numeric(s, errors="coerce")).mean())
+        arr = pd.to_numeric(s, errors="coerce")
+        records.append(
+            {
+                "feature": c,
+                "missing_rate": missing_rate,
+                "nonfinite_rate": nonfinite_rate,
+                "mean": float(arr.mean(skipna=True)) if arr.notna().any() else None,
+                "std": float(arr.std(skipna=True)) if arr.notna().any() else None,
+                "corr_y_ret_1d": safe_corr(arr, y_ret),
+                "corr_y_up_1d": safe_corr(arr, y_up),
+            }
+        )
 
-    def top_k(key, k=10, reverse=True, abs_value=False):
-        items = []
-        for feat, diag in diagnostics.items():
-            v = diag.get(key)
-            if v is None:
-                continue
-            val = abs(v) if abs_value else v
-            items.append((feat, val, v))
-        items.sort(key=lambda t: t[1], reverse=reverse)
-        return items[:k]
+    top_missing = sorted(records, key=lambda r: r["missing_rate"], reverse=True)[:10]
+    top_corr_ret = sorted(records, key=lambda r: abs(r["corr_y_ret_1d"] or 0), reverse=True)[:10]
+    top_corr_up = sorted(records, key=lambda r: abs(r["corr_y_up_1d"] or 0), reverse=True)[:10]
 
-    summary = {
+    out = {
         "report_version": "feature_diagnostics_v1",
-        "built_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "dataset": {
-            "rows": int(len(df)),
-            "features": int(len(features)),
-        },
+        "built_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "dataset": {"rows": rows, "features": len(features)},
         "top": {
-            "missing_rate": top_k("missing_rate", reverse=True),
-            "abs_corr_y_ret_1d": top_k("corr_y_ret_1d", reverse=True, abs_value=True),
-            "abs_corr_y_up_1d": top_k("corr_y_up_1d", reverse=True, abs_value=True),
+            "missing_rate": [(r["feature"], r["missing_rate"]) for r in top_missing],
+            "corr_y_ret_1d": [(r["feature"], r["corr_y_ret_1d"]) for r in top_corr_ret],
+            "corr_y_up_1d": [(r["feature"], r["corr_y_up_1d"]) for r in top_corr_up],
         },
     }
 
-    output_json = {
-        **summary,
-        "diagnostics": diagnostics,
-    }
+    Path("data_model/02618.HK/feature_diagnostics_v1.json").write_text(
+        json.dumps(out, ensure_ascii=False, indent=2)
+    )
 
-    with open("data_model/02618.HK/feature_diagnostics_v1.json", "w", encoding="utf-8") as f:
-        json.dump(output_json, f, ensure_ascii=False, indent=2)
+    md_lines = [
+        "## feature diagnostics v1",
+        f"built_at: {out['built_at']}",
+        "",
+        f"dataset rows: {rows}",
+        f"feature count: {len(features)}",
+        "",
+        "### top missing",
+    ]
+    for f, v in out["top"]["missing_rate"]:
+        md_lines.append(f"- {f}: missing_rate={v}")
 
-    # Lightweight markdown for quick review.
-    lines = []
-    lines.append("# Feature diagnostics v1")
-    lines.append("")
-    lines.append(f"生成时间：{summary['built_at']}")
-    lines.append("")
-    lines.append(f"数据：`{DATASET_PATH}` rows={summary['dataset']['rows']} features={summary['dataset']['features']}")
-    lines.append("")
-    lines.append("## Top missing rate")
-    for feat, val, raw in summary["top"]["missing_rate"]:
-        lines.append(f"- {feat}: missing_rate={raw:.6f}")
+    md_lines.append("")
+    md_lines.append("### top |corr| with y_ret_1d")
+    for f, v in out["top"]["corr_y_ret_1d"]:
+        md_lines.append(f"- {f}: corr={v}")
 
-    lines.append("")
-    lines.append("## Top abs corr with y_ret_1d")
-    for feat, val, raw in summary["top"]["abs_corr_y_ret_1d"]:
-        lines.append(f"- {feat}: corr={raw:.6f}")
+    md_lines.append("")
+    md_lines.append("### top |corr| with y_up_1d")
+    for f, v in out["top"]["corr_y_up_1d"]:
+        md_lines.append(f"- {f}: corr={v}")
 
-    lines.append("")
-    lines.append("## Top abs corr with y_up_1d")
-    for feat, val, raw in summary["top"]["abs_corr_y_up_1d"]:
-        lines.append(f"- {feat}: corr={raw:.6f}")
-    lines.append("")
-
-    with open("reports/feature_diagnostics_v1.md", "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    Path("reports/feature_diagnostics_v1.md").write_text("\n".join(md_lines) + "\n")
 
 
 if __name__ == "__main__":

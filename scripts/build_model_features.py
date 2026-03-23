@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+"
 build_model_features.py
 
 职责：
@@ -26,7 +26,7 @@ V2.1 核心修复：
 - 当前不负责训练
 - 当前不负责预测
 - 当前只负责稳定生成模型消费母表
-"""
+"
 
 from __future__ import annotations
 
@@ -218,9 +218,7 @@ FINAL_COLUMNS_ORDER = [
     "ret_2057_20d",    "alpha_vs_9618_5d",
     "alpha_vs_3690_5d",
     "alpha_vs_9988_5d",
-    "alpha_vs_2057_5d",
-    "",
-    # 质量控制
+    "alpha_vs_2057_5d", # 质量控制
     "row_quality_flag",
     "missing_ratio",
     "feature_count_total",
@@ -313,15 +311,15 @@ def count_nonnull_fields(row: pd.Series, cols: List[str]) -> int:
 
 
 def calc_anchor_strength_score(row: pd.Series) -> float:
-    """
+    "
     锚点选择综合分：
     1. 质量优先
     2. 周期优先
     3. 关键字段越全越优
     4. 慢变量核心越全越优
-    """
-    q_rank = quality_rank(str(row.get("quality_flag", "")))
-    p_rank = period_rank(str(row.get("period_type", "")))
+    "
+    q_rank = quality_rank(str(row.get("quality_flag", )))
+    p_rank = period_rank(str(row.get("period_type", )))
 
     critical_nonnull = count_nonnull_fields(row, CRITICAL_FUNDAMENTAL_FIELDS)
     anchor_strength = count_nonnull_fields(row, ANCHOR_STRENGTH_FIELDS)
@@ -400,7 +398,7 @@ def load_fundamental(symbol: str) -> pd.DataFrame:
     if "quality_flag" not in df.columns:
         df["quality_flag"] = "UNKNOWN"
     if "data_version" not in df.columns:
-        df["data_version"] = ""
+        df["data_version"] = 
 
     keep_cols = ["symbol"] + FUNDAMENTAL_META_COLUMNS
     for col in FUNDAMENTAL_NUMERIC_COLUMNS:
@@ -456,10 +454,10 @@ def resolve_asof_dates(
     start_date: Optional[str],
     end_date: Optional[str],
 ) -> pd.DataFrame:
-    """
+    "
     正式母表主轴改为：个股实际可用交易日。
     这样不会再被不完整的 hk_trade_calendar.csv 截断历史。
-    """
+    "
     if stock_df.empty:
         raise ValueError("个股行情为空，无法生成样本")
 
@@ -675,8 +673,8 @@ def build_model_features(symbol: str, start_date: Optional[str], end_date: Optio
     out["row_quality_flag"] = out.apply(
         lambda r: derive_row_quality_flag(
             missing_ratio=float(r["missing_ratio"]),
-            fundamental_quality_flag=str(r.get("fundamental_quality_flag", "")),
-            fundamental_anchor_period_type=str(r.get("fundamental_anchor_period_type", "")),
+            fundamental_quality_flag=str(r.get("fundamental_quality_flag", )),
+            fundamental_anchor_period_type=str(r.get("fundamental_anchor_period_type", )),
             critical_nonnull_ratio=float(
                 r.get("fundamental_critical_nonnull_ratio")
                 if pd.notna(r.get("fundamental_critical_nonnull_ratio"))

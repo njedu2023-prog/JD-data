@@ -1,0 +1,38 @@
+name: Feature diagnostics v1
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install -U pip
+          pip install pandas numpy
+      - name: Run diagnostics
+        run: |
+          python scripts/feature_diagnostics_v1.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature_diagnostics_v1
+          path: |
+            data_model/02618.HK/feature_diagnostics_v1.json
+            reports/feature_diagnostics_v1.md
+      - name: Commit output
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: |
+            data_model/02618.HK/feature_diagnostics_v1.json
+            reports/feature_diagnostics_v1.md
+          message: "[feature] 输出 - 诊断"
+          author_name: github-actions
+          author_email: actions@github.com
+          committer_name: github-actions
+          committer_email: actions@github.com

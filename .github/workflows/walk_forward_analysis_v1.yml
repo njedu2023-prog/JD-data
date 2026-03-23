@@ -1,0 +1,35 @@
+name: Walk-forward analysis v1
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q numpy scipy
+      - run: python scripts/walk_forward_analysis_v1.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: walk_forward_analysis_v1
+          path: |
+            data_model/02618.HK/walk_forward_analysis_v1.json
+            reports/walk_forward_analysis_v1.md
+      - name: Commit results
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: |
+            data_model/02618.HK/walk_forward_analysis_v1.json
+            reports/walk_forward_analysis_v1.md
+          message: "[walkforward] 输出 - 分析"
+          author_name: github-actions[bot]
+          author_email: 41898282+github-actions[bot]@users.noreply.github.com
+          committer_name: github-actions[bot]
+          committer_email: 41898282+github-actions[bot]@users.noreply.github.com

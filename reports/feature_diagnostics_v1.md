@@ -1,41 +1,41 @@
-# Feature diagnostics v1
+## feature diagnostics v1
+built_at: 2026-03-23T15:43:38Z
 
-生成时间：2026-03-23T12:23:32Z
+dataset rows: 1183
+feature count: 103
 
-数据：`data_model/02618.HK/model_dataset.csv` rows=1183 features=113
+### top missing
+- ret_1519_20d: missing_rate=0.5190194420963652
+- ret_1519_5d: missing_rate=0.5063398140321217
+- alpha_vs_1519_5d: missing_rate=0.5063398140321217
+- ret_1519_1d: missing_rate=0.5029585798816568
+- external_isc_customer_yoy: missing_rate=0.3338968723584108
+- external_isc_arpc_yoy: missing_rate=0.3338968723584108
+- receivables_loss_allowance_ratio: missing_rate=0.3322062552831784
+- contract_assets: missing_rate=0.3305156382079459
+- contract_assets_ratio: missing_rate=0.3305156382079459
+- borrowings: missing_rate=0.12510566356720204
 
-## Top missing rate
-- symbol: missing_rate=1.000000
-- asof_date: missing_rate=1.000000
-- fundamental_anchor_date: missing_rate=1.000000
-- fundamental_anchor_period_type: missing_rate=1.000000
-- fundamental_quality_flag: missing_rate=1.000000
-- fundamental_data_version: missing_rate=1.000000
-- row_quality_flag: missing_rate=1.000000
-- built_at_x: missing_rate=1.000000
-- label_version: missing_rate=1.000000
-- built_at_y: missing_rate=1.000000
+### top |corr| with y_ret_1d
+- ret_1519_20d: corr=-0.0772687941774146
+- stock_close: corr=-0.0687986128081322
+- ret_3690_1d: corr=0.06196033369562811
+- ret_9988_5d: corr=-0.04973204035205239
+- stock_vol_5d: corr=0.04959900069094069
+- net_cash: corr=-0.049453042979156286
+- stock_ret_1d: corr=0.04898466748207832
+- revenue: corr=0.0476493271510538
+- ret_9618_1d: corr=0.04762992908069005
+- current_liabilities: corr=0.04607848165758298
 
-## Top abs corr with y_ret_1d
-- ret_1519_20d: corr=-0.077269
-- stock_close: corr=-0.068799
-- ret_3690_1d: corr=0.061960
-- ret_9988_5d: corr=-0.049732
-- stock_vol_5d: corr=0.049599
-- net_cash: corr=-0.049453
-- stock_ret_1d: corr=0.048985
-- revenue: corr=0.047649
-- ret_9618_1d: corr=0.047630
-- current_liabilities: corr=0.046078
-
-## Top abs corr with y_up_1d
-- stock_close: corr=-0.072353
-- gross_margin: corr=0.045800
-- missing_ratio: corr=-0.045490
-- operating_cash_flow: corr=0.044699
-- trade_year: corr=0.044565
-- hscei_ret_5d: corr=-0.044319
-- current_assets: corr=0.044024
-- operating_cash_flow_margin: corr=0.043417
-- gross_profit: corr=0.043197
-- stock_vol_5d: corr=0.043079
+### top |corr| with y_up_1d
+- stock_close: corr=-0.07235279605384594
+- gross_margin: corr=0.04579982941324928
+- missing_ratio: corr=-0.045489540707389683
+- operating_cash_flow: corr=0.04469853100194069
+- trade_year: corr=0.044565028578014414
+- hscei_ret_5d: corr=-0.044318751137367364
+- current_assets: corr=0.04402437095320067
+- operating_cash_flow_margin: corr=0.043417280719565826
+- gross_profit: corr=0.04319710756033432
+- stock_vol_5d: corr=0.04307920074575286

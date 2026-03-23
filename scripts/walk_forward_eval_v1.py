@@ -1,23 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Walk-forward validation for JD-data baseline models.
+"""
+Walk-forward validation for JD-data baseline models.
 
-Outputs walk-forward evaluation JSON file for 02618.HK:
+Outputs:
 - data_model/02618.HK/walk_forward_eval_v1.json
 
-Strategy (minimal but reproducible):
-- Sorting by asof_date
-- Walk-forward expanding window
-- Fixed test window size per fold
-- Ridge for regression target y_ret_1d
-- Logistic regression for classification target y_up_1d
-
-Metrics:
-- Regression: MAE, RMSE, IC (Pearson correlation)
-- Classification: Accuracy, F1, ROC AUC, Brier score
-
-Benchmarks:
-- Regression: random-walk (predict 0)
-- Classification: majority class from train set
+Minimal, reproducible settings:
+- sort by asof_date
+- expanding train window
+- fixed test_size per fold
+- Ridge: y_ret_1d
+- LogisticRegression: y_up_1d
 """
 
 from __future__ import annotations
@@ -42,7 +35,6 @@ from sklearn.metrics import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATASET_FILE = REPO_ROOT / "data_model" / "02618.HK" / "model_dataset.csv"
@@ -74,7 +66,7 @@ class EvalClassification:
 
 
 def _pearson_ic(y_true: np.ndarray, y_pred: np.ndarray) -> Optional[float]:
-e    if len(y_true) < 2:
+    if len(y_true) < 2:
         return None
     x = np.asarray(y_true, dtype=float)
     y = np.asarray(y_pred, dtype=float)
@@ -88,8 +80,6 @@ e    if len(y_true) < 2:
 
 def _select_features(df: pd.DataFrame) -> List[str]:
     numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-
-    exclude_prefixes = ["y_"]
     exclude_names = {
         TARGET_REG,
         TARGET_CLS,
@@ -98,22 +88,15 @@ def _select_features(df: pd.DataFrame) -> List[str]:
         "missing_ratio",
         "build_version",
     }
-
-    features: List[str] = []
-    for col in numeric_cols:
-        if col in exclude_names:
-            continue
-        if any(col.startswith(p) for p in exclude_prefixes):
-            continue
-        features.append(col)
-
+    features = [c for c in numeric_cols if c not in exclude_names and not c.startswith("y_")]
     if not features:
         raise ValueError("No numeric features available after exclusion")
-
     return features
 
 
-def _walk_forward_splits(n: int, min_train: int, test_size: int, step: Optional[int] = None) -> List[Split]:
+def _walk_forward_splits(
+    n: int, min_train: int, test_size: int, step: Optional[int] = None
+) -> List[Split]:
     if n < min_train + test_size:
         raise ValueError("Not enough rows for walk-forward validation")
     if step is None:
@@ -123,10 +106,12 @@ def _walk_forward_splits(n: int, min_train: int, test_size: int, step: Optional[
     train_end = min_train
 
     while train_end + test_size <= n:
-        train_idx = np.arange(train_end)
-        test_idx = np.arange(train_end, train_end + test_size)
-        splits.append(Split(train_idx=train_idx, test_idx=test_idx))
-
+        splits.append(
+            Split(
+                train_idx=np.arange(train_end),
+                test_idx=np.arange(train_end, train_end + test_size),
+            )
+        )
         train_end += step
 
     return splits
@@ -148,9 +133,7 @@ def _nanstd(values: List[Optional[float]]) -> Optional[float]:
 
 def train_regression_fold(df: pd.DataFrame, split: Split, features: List[str]) -> Dict[str, Any]:
     y = df[TARGET_REG].to_numpy()
-
-    X = df[features].to_numpy()
-    X = np.nan_to_num(X, nan=0.0)
+    X = np.nan_to_num(df[features].to_numpy(), nan=0.0)
 
     pipeline = Pipeline(
         steps=[
@@ -162,25 +145,23 @@ def train_regression_fold(df: pd.DataFrame, split: Split, features: List[str]) -
     pipeline.fit(X[split.train_idx], y[split.train_idx])
     y_pred = pipeline.predict(X[split.test_idx])
 
-    mae = float(mean_absolute_error(y[split.test_idx], y_pred))
-    rmse = float(math.sqrt(mean_squared_error(y[split.test_idx], y_pred)))
+    mae = mean_absolute_error(y[split.test_idx], y_pred)
+    rmse = math.sqrt(mean_squared_error(y[split.test_idx], y_pred))
     ic = _pearson_ic(y[split.test_idx], y_pred)
 
     base_pred = np.zeros_like(y[split.test_idx])
-    mae_base = float(mean_absolute_error(y[split.test_idx], base_pred))
-    rmse_base = float(math.sqrt(mean_squared_error(y[split.test_idx], base_pred)))
+    mae_base = mean_absolute_error(y[split.test_idx], base_pred)
+    rmse_base = math.sqrt(mean_squared_error(y[split.test_idx], base_pred))
 
     return {
-        "ridge": asdict(EvalRegression(mae=mae, rmse=rmse, ic=ic)),
-        "random_walk": asdict(EvalRegression(mae=mae_base, rmse=rmse_base, ic=0.0)),
+        "ridge": asdict(EvalRegression(mae=float(mae), rmse=float(rmse), ic=ic)),
+        "random_walk": asdict(EvalRegression(mae=float(mae_base), rmse=float(rmse_base), ic=0.0)),
     }
 
 
 def train_classification_fold(df: pd.DataFrame, split: Split, features: List[str]) -> Dict[str, Any]:
-    y = df[TARGET_CLS].astype(int).to_numpy(dtype=int)
-
-    X = df[features].to_numpy()
-    X = np.nan_to_num(X, nan=0.0)
+    y = df[TARGET_CLS].astype(int).to_numpy()
+    X = np.nan_to_num(df[features].to_numpy(), nan=0.0)
 
     pipeline = Pipeline(
         steps=[
@@ -193,36 +174,39 @@ def train_classification_fold(df: pd.DataFrame, split: Split, features: List[str
     y_prob = pipeline.predict_proba(X[split.test_idx])[:, 1]
     y_pred_cls = (y_prob >= 0.5).astype(int)
 
-    acc = float(accuracy_score(y[split.test_idx], y_pred_cls))
-    f1 = float(f1_score(y[split.test_idx], y_pred_cls))
+    acc = accuracy_score(y[split.test_idx], y_pred_cls)
+    f1 = f1_score(y[split.test_idx], y_pred_cls)
     try:
-        roc = float(roc_auc_score(y[split.test_idx], y_prob))
+        roc = roc_auc_score(y[split.test_idx], y_prob)
     except Exception:
         roc = None
-    brier = float(brier_score_loss(y[split.test_idx], y_prob))
+    brier = brier_score_loss(y[split.test_idx], y_prob)
 
     base_prob = float(np.mean(y[split.train_idx]))
-    majority = int(round(base_prob))
-
+    majority = 1 if base_prob > 0.5 else 0
     base_pred = np.full_like(y[split.test_idx], majority)
     base_prob_vec = np.full_like(y_prob, base_prob, dtype=float)
 
-    acc_base = float(accuracy_score(y[split.test_idx], base_pred))
-    f1_base = float(f1_score(y[split.test_idx], base_pred))
+    acc_base = accuracy_score(y[split.test_idx], base_pred)
+    f1_base = f1_score(y[split.test_idx], base_pred)
     try:
-        roc_base = float(roc_auc_score(y[split.test_idx], base_prob_vec))
+        roc_base = roc_auc_score(y[split.test_idx], base_prob_vec)
     except Exception:
         roc_base = None
-    brier_base = float(brier_score_loss(y[split.test_idx], base_prob_vec))
+    brier_base = brier_score_loss(y[split.test_idx], base_prob_vec)
 
     return {
-        "logistic": asdict(EvalClassification(accuracy=acc, f1=f1, roc_auc=roc, brier=brier)),
+        "logistic": asdict(
+            EvalClassification(
+                accuracy=float(acc), f1=float(f1), roc_auc=roc, brier=float(brier)
+            )
+        ),
         "majority": asdict(
             EvalClassification(
-                accuracy=acc_base,
-                f1=f1_base,
+                accuracy=float(acc_base),
+                f1=float(f1_base),
                 roc_auc=roc_base,
-                brier=brier_base,
+                brier=float(brier_base),
             )
         ),
         "majority_class_train": majority,
@@ -249,26 +233,17 @@ def main() -> None:
         raise ValueError("model_dataset.csv must contain asof_date")
 
     df["asof_date"] = pd.to_datetime(df["asof_date"], errors="coerce")
-    df = df[df["asof_date"].notna()].copy()
+    df = df[df["asof_date"].notna()].copy().sort_values("asof_date")
 
-    df = df.sort_values("asof_date").reset_index(drop=True)
+    mask = np.isfinite(df[TARGET_REG]) & np.isfinite(df[TARGET_CLS])
+    df = df.loc[mask].copy().reset_index(drop=True)
 
-    # Minimal pipeline settings (keep simple for reproducibility).
+    # Keep minimal window settings for reproducibility.
     min_train = 500
     test_size = 60
     step = 60
 
     features = _select_features(df)
-
-    df_reg = df[np.isfinite(df[TARGET_REG])].copy().reset_index(drop=True)
-    df_cls = df[np.isfinite(df[TARGET_CLS])].copy().reset_index(drop=True)
-
-    if len(df_reg) != len(df_cls):
-        # Inconsistent labels should be rare; still allow but warn.
-        print(
-            f"[WARN] different row counts after label filtering: regression={len(df_reg)}, classification={len(df_cls)}"
-        )
-
     splits = _walk_forward_splits(len(df), min_train=min_train, test_size=test_size, step=step)
 
     regression_folds: List[Dict[str, Any]] = []
@@ -285,26 +260,11 @@ def main() -> None:
             "test_end": df["asof_date"].iloc[split.test_idx[-1]].date().isoformat(),
         }
 
-        reg_metrics = train_regression_fold(df_reg, split, features)
-        cls_metrics = train_classification_fold(df_cls, split, features)
+        regression_folds.append({"meta": fold_meta, "metrics": train_regression_fold(df, split, features)})
+        classification_folds.append({"meta": fold_meta, "metrics": train_classification_fold(df, split, features)})
 
-        regression_folds.append({"meta": fold_meta, "metrics": reg_metrics})
-        classification_folds.append({"meta": fold_meta, "metrics": cls_metrics})
-
-    def _aggregate_reg(key: str, agg_func) -> Optional[float]:
-        vals = [fold["metrics"]["ridge"].get(key) for fold in regression_folds]
-        return agg_func(vals)
-
-    def _aggregate_reg_base(key: str, agg_func) -> Optional[float]:
-        vals = [fold["metrics"]["random_walk"].get(key) for fold in regression_folds]
-        return agg_func(vals)
-
-    def _aggregate_cls(key: str, agg_func) -> Optional[float]:
-        vals = [fold["metrics"]["logistic"].get(key) for fold in classification_folds]
-        return agg_func(vals)
-
-    def _aggregate_cls_base(key: str, agg_func) -> Optional[float]:
-        vals = [fold["metrics"]["majority"].get(key) for fold in classification_folds]
+    def _agg(folds: List[Dict[str, Any]], bucket: str, key: str, agg_func):
+        vals = [fold["metrics"][bucket].get(key) for fold in folds]
         return agg_func(vals)
 
     output = {
@@ -324,24 +284,24 @@ def main() -> None:
         "regression": {
             "summary": {
                 "ridge_mean": {
-                    "mae": _aggregate_reg("mae", _nanmean),
-                    "rmse": _aggregate_reg("rmse", _nanmean),
-                    "ic": _aggregate_reg("ic", _nanmean),
+                    "mae": _agg(regression_folds, "ridge", "mae", _nanmean),
+                    "rmse": _agg(regression_folds, "ridge", "rmse", _nanmean),
+                    "ic": _agg(regression_folds, "ridge", "ic", _nanmean),
                 },
                 "ridge_std": {
-                    "mae": _aggregate_reg("mae", _nanstd),
-                    "rmse": _aggregate_reg("rmse", _nanstd),
-                    "ic": _aggregate_reg("ic", _nanstd),
+                    "mae": _agg(regression_folds, "ridge", "mae", _nanstd),
+                    "rmse": _agg(regression_folds, "ridge", "rmse", _nanstd),
+                    "ic": _agg(regression_folds, "ridge", "ic", _nanstd),
                 },
                 "random_walk_mean": {
-                    "mae": _aggregate_reg_base("mae", _nanmean),
-                    "rmse": _aggregate_reg_base("rmse", _nanmean),
-                    "ic": _aggregate_reg_base("ic", _nanmean),
+                    "mae": _agg(regression_folds, "random_walk", "mae", _nanmean),
+                    "rmse": _agg(regression_folds, "random_walk", "rmse", _nanmean),
+                    "ic": _agg(regression_folds, "random_walk", "ic", _nanmean),
                 },
                 "random_walk_std": {
-                    "mae": _aggregate_reg_base("mae", _nanstd),
-                    "rmse": _aggregate_reg_base("rmse", _nanstd),
-                    "ic": _aggregate_reg_base("ic", _nanstd),
+                    "mae": _agg(regression_folds, "random_walk", "mae", _nanstd),
+                    "rmse": _agg(regression_folds, "random_walk", "rmse", _nanstd),
+                    "ic": _agg(regression_folds, "random_walk", "ic", _nanstd),
                 },
             },
             "folds": regression_folds,
@@ -349,28 +309,28 @@ def main() -> None:
         "classification": {
             "summary": {
                 "logistic_mean": {
-                    "accuracy": _aggregate_cls("accuracy", _nanmean),
-                    "f1": _aggregate_cls("f1", _nanmean),
-                    "roc_auc": _aggregate_cls("roc_auc", _nanmean),
-                    "brier": _aggregate_cls("brier", _nanmean),
+                    "accuracy": _agg(classification_folds, "logistic", "accuracy", _nanmean),
+                    "f1": _agg(classification_folds, "logistic", "f1", _nanmean),
+                    "roc_auc": _agg(classification_folds, "logistic", "roc_auc", _nanmean),
+                    "brier": _agg(classification_folds, "logistic", "brier", _nanmean),
                 },
                 "logistic_std": {
-                    "accuracy": _aggregate_cls("accuracy", _nanstd),
-                    "f1": _aggregate_cls("f1", _nanstd),
-                    "roc_auc": _aggregate_cls("roc_auc", _nanstd),
-                    "brier": _aggregate_cls("brier", _nanstd),
+                    "accuracy": _agg(classification_folds, "logistic", "accuracy", _nanstd),
+                    "f1": _agg(classification_folds, "logistic", "f1", _nanstd),
+                    "roc_auc": _agg(classification_folds, "logistic", "roc_auc", _nanstd),
+                    "brier": _agg(classification_folds, "logistic", "brier", _nanstd),
                 },
                 "majority_mean": {
-                    "accuracy": _aggregate_cls_base("accuracy", _nanmean),
-                    "f1": _aggregate_cls_base("f1", _nanmean),
-                    "roc_auc": _aggregate_cls_base("roc_auc", _nanmean),
-                    "brier": _aggregate_cls_base("brier", _nanmean),
+                    "accuracy": _agg(classification_folds, "majority", "accuracy", _nanmean),
+                    "f1": _agg(classification_folds, "majority", "f1", _nanmean),
+                    "roc_auc": _agg(classification_folds, "majority", "roc_auc", _nanmean),
+                    "brier": _agg(classification_folds, "majority", "brier", _nanmean),
                 },
                 "majority_std": {
-                    "accuracy": _aggregate_cls_base("accuracy", _nanstd),
-                    "f1": _aggregate_cls_base("f1", _nanstd),
-                    "roc_auc": _aggregate_cls_base("roc_auc", _nanstd),
-                    "brier": _aggregate_cls_base("brier", _nanstd),
+                    "accuracy": _agg(classification_folds, "majority", "accuracy", _nanstd),
+                    "f1": _agg(classification_folds, "majority", "f1", _nanstd),
+                    "roc_auc": _agg(classification_folds, "majority", "roc_auc", _nanstd),
+                    "brier": _agg(classification_folds, "majority", "brier", _nanstd),
                 },
             },
             "folds": classification_folds,
@@ -383,9 +343,7 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(
-        f"[OK] walk-forward evaluation written: {OUTPUT_FILE} ({len(regression_folds)} folds)"
-    )
+    print(f"[OK] walk-forward evaluation written: {OUTPUT_FILE} ({len(regression_folds)} folds)")
 
 
 if __name__ == "__main__":

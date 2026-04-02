@@ -212,3 +212,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-04-02T11:59:45Z,tushare.hk_daily,9618.HK,1424,1423,0,success,full refresh from listing date completed
 2026-04-02T12:01:14Z,yfinance.^HSCE,HSCEI,1538,1537,0,success,hscei full refresh completed via yfinance ^HSCE
 2026-04-02T12:02:07Z,tushare.hk_daily,9988.HK,1562,1561,0,success,full refresh from listing date completed
+2026-04-02T12:02:45Z,tushare.hk_daily,2057.HK,1353,1350,2,success,full refresh from listing date completed

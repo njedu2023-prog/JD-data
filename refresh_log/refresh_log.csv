@@ -250,3 +250,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-04-07T12:05:11Z,yfinance.^HSCE,HSCEI,1538,1537,0,success,hscei full refresh completed via yfinance ^HSCE
 2026-04-07T12:06:03Z,tushare.hk_daily,9988.HK,1562,1561,0,success,full refresh from listing date completed
 2026-04-07T20:03:02Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
+2026-04-07T20:04:58Z,tushare.index_global,HSI,1537,1536,0,success,hsi full refresh completed via index_global

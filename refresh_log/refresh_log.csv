@@ -310,3 +310,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-04-15T20:27:44Z,tushare.index_global,HKTECH,1404,1404,0,success,hktech full refresh completed via index_global
 2026-04-16T11:17:01Z,tushare.hk_daily,02618.HK,1199,1199,0,success,full refresh from listing date completed
 2026-04-16T12:09:57Z,tushare.hk_daily,3690.HK,1859,1858,0,success,full refresh from listing date completed
+2026-04-16T12:10:45Z,tushare.hk_daily,9618.HK,1431,1430,0,success,full refresh from listing date completed

@@ -328,3 +328,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-04-18T10:56:04Z,tushare.hk_daily,02618.HK,1200,1200,0,success,full refresh from listing date completed
 2026-04-18T19:54:57Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
 2026-04-18T19:57:32Z,tushare.index_global,HSI,1545,1544,0,success,hsi full refresh completed via index_global
+2026-04-18T20:04:04Z,tushare.index_global,HKTECH,1406,1406,0,success,hktech full refresh completed via index_global

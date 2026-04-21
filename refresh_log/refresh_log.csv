@@ -342,3 +342,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-04-20T20:09:02Z,tushare.index_global,HSI,1546,1545,0,success,hsi full refresh completed via index_global
 2026-04-20T20:23:22Z,tushare.index_global,HKTECH,1407,1407,0,success,hktech full refresh completed via index_global
 2026-04-21T11:20:33Z,tushare.hk_daily,02618.HK,1202,1202,0,success,full refresh from listing date completed
+2026-04-21T12:09:49Z,tushare.hk_daily,3690.HK,1862,1861,0,success,full refresh from listing date completed

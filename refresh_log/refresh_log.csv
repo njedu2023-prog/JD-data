@@ -566,3 +566,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-05-21T14:18:44Z,tushare.hk_daily,9988.HK,1593,1592,0,success,full refresh from listing date completed
 2026-05-21T14:19:47Z,tushare.hk_daily,1519.HK,629,629,0,success,full refresh from listing date completed
 2026-05-21T20:59:05Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
+2026-05-21T21:09:31Z,tushare.index_global,HSI,1568,1567,0,success,hsi full refresh completed via index_global

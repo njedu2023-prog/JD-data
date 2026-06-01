@@ -629,3 +629,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-05-31T20:36:36Z,tushare.index_global,HSI,1572,1571,0,success,hsi full refresh completed via index_global
 2026-05-31T20:38:48Z,tushare.index_global,HKTECH,1433,1433,0,success,hktech full refresh completed via index_global
 2026-06-01T16:15:42Z,tushare.hk_daily,02618.HK,1229,1229,0,success,full refresh from listing date completed
+2026-06-01T16:47:31Z,tushare.hk_daily,3690.HK,1889,1888,0,success,full refresh from listing date completed

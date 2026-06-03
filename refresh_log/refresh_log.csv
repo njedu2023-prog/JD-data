@@ -648,3 +648,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-06-03T15:55:51Z,tushare.hk_daily,9988.HK,1601,1600,0,success,full refresh from listing date completed
 2026-06-03T15:56:58Z,tushare.hk_daily,1519.HK,637,637,0,success,full refresh from listing date completed
 2026-06-03T22:06:59Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed
+2026-06-03T22:09:22Z,tushare.index_global,HSI,1575,1574,0,success,hsi full refresh completed via index_global

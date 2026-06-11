@@ -1,12 +1,12 @@
 {
   "symbol": "02618.HK",
-  "date": "2026-06-10",
-  "open": 12.67,
-  "high": 12.92,
-  "low": 12.54,
-  "close": 12.89,
-  "volume": 8197475.0,
-  "amount": 104787624.81,
+  "date": "2026-06-11",
+  "open": 12.89,
+  "high": 13.0,
+  "low": 12.58,
+  "close": 12.74,
+  "volume": 9458876.0,
+  "amount": 120142561.8,
   "quality_flag": "PASS",
-  "data_version": "D20260610.01"
+  "data_version": "D20260611.01"
 }

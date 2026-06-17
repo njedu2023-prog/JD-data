@@ -737,3 +737,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-06-17T14:28:54Z,tushare.hk_daily,3690.HK,1901,1900,0,success,full refresh from listing date completed
 2026-06-17T14:30:12Z,tushare.hk_daily,2057.HK,1402,1399,2,success,full refresh from listing date completed
 2026-06-17T14:32:55Z,tushare.hk_daily,1519.HK,647,647,0,success,full refresh from listing date completed
+2026-06-17T21:24:01Z,tushare.hk_trade_calendar,HK_CALENDAR,731,731,0,success,hk trade calendar refresh completed

@@ -829,3 +829,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-06-30T21:17:12Z,tushare.index_global,HKTECH,1454,1454,0,success,hktech full refresh completed via index_global
 2026-07-01T12:43:28Z,tushare.hk_daily,02618.HK,1249,1249,0,success,full refresh from listing date completed
 2026-07-01T13:41:01Z,tushare.hk_daily,3690.HK,1909,1908,0,success,full refresh from listing date completed
+2026-07-01T13:41:37Z,yfinance.^HSCE,HSCEI,1595,1594,0,success,hscei full refresh completed via yfinance ^HSCE

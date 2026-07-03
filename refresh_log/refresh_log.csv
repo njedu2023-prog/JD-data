@@ -849,3 +849,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-07-03T13:12:47Z,tushare.hk_daily,3690.HK,1911,1910,0,success,full refresh from listing date completed
 2026-07-03T13:15:04Z,yfinance.^HSCE,HSCEI,1597,1596,0,success,hscei full refresh completed via yfinance ^HSCE
 2026-07-03T13:16:14Z,tushare.hk_daily,9988.HK,1621,1620,0,success,full refresh from listing date completed
+2026-07-03T13:16:39Z,tushare.hk_daily,2057.HK,1412,1409,2,success,full refresh from listing date completed

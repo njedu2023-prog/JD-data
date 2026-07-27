@@ -999,3 +999,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-07-26T20:28:30Z,tushare.index_global,HSI,1612,1612,0,success,hsi full refresh completed via index_global
 2026-07-27T13:18:00Z,tushare.hk_daily,02618.HK,1267,1267,0,success,full refresh from listing date completed
 2026-07-27T13:44:41Z,tushare.hk_daily,9618.HK,1499,1498,0,success,full refresh from listing date completed
+2026-07-27T13:51:47Z,tushare.hk_daily,1519.HK,673,673,0,success,full refresh from listing date completed

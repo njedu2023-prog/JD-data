@@ -1445,3 +1445,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-10-07T23:39:46Z,tushare.index_global,HSI,1664,1664,0,success,hsi full refresh completed via index_global
 2026-10-08T17:21:39Z,tushare.hk_daily,02618.HK,1319,1319,0,success,full refresh from listing date completed
 2026-10-08T17:52:56Z,tushare.hk_daily,3690.HK,1979,1978,0,success,full refresh from listing date completed
+2026-10-08T17:54:39Z,tushare.hk_daily,2057.HK,1480,1477,2,success,full refresh from listing date completed

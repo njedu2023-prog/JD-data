@@ -1452,3 +1452,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-10-09T16:57:21Z,tushare.hk_daily,02618.HK,1320,1320,0,success,full refresh from listing date completed
 2026-10-09T17:26:59Z,tushare.hk_daily,3690.HK,1980,1979,0,success,full refresh from listing date completed
 2026-10-09T17:28:17Z,tushare.hk_daily,9988.HK,1690,1689,0,success,full refresh from listing date completed
+2026-10-09T17:29:23Z,tushare.hk_daily,1519.HK,726,726,0,success,full refresh from listing date completed

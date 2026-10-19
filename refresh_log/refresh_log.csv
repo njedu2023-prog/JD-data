@@ -1508,3 +1508,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-10-18T21:38:27Z,tushare.index_global,HSI,1671,1671,0,success,hsi full refresh completed via index_global
 2026-10-19T16:56:22Z,tushare.hk_daily,02618.HK,1325,1325,0,success,full refresh from listing date completed
 2026-10-19T17:29:27Z,tushare.hk_daily,3690.HK,1985,1984,0,success,full refresh from listing date completed
+2026-10-19T17:30:05Z,tushare.hk_daily,9618.HK,1557,1556,0,success,full refresh from listing date completed

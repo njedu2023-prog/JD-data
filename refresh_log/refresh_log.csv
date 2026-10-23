@@ -1545,3 +1545,4 @@ refresh_time,source,symbol,rows_raw,rows_clean,rows_fail,status,message
 2026-10-23T15:46:40Z,tushare.hk_daily,9988.HK,1699,1698,0,success,full refresh from listing date completed
 2026-10-23T15:47:14Z,tushare.hk_daily,2057.HK,1490,1487,2,success,full refresh from listing date completed
 2026-10-23T15:47:55Z,tushare.hk_daily,1519.HK,735,735,0,success,full refresh from listing date completed
+2026-10-23T22:18:47Z,tushare.hk_trade_calendar,HK_CALENDAR,2192,2192,0,success,hk trade calendar refresh completed
